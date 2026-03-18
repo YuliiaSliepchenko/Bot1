@@ -1,13 +1,21 @@
 import asyncio
+import os
 import httpx
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-TOKEN = "8314866079:AAEK299qO8elmLQ5WklZj-kYSLt-W9WlD5k"
-OPENROUTER_KEY = "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"
+load_dotenv()
 
+TOKEN = os.getenv("BOT_TOKEN")
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = "openai/gpt-4o-mini"
+
+if not TOKEN:
+    raise ValueError("Не знайдено BOT_TOKEN")
+if not OPENROUTER_KEY:
+    raise ValueError("Не знайдено OPENROUTER_API_KEY")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -32,11 +40,10 @@ SYSTEM_PROMPT = """
 - курс: 24 уроки + фінальний проєкт
 - після курсу видається сертифікат
 
-Відповідай коротко і зрозуміло.
+Відповідай коротко і зрозуміло українською мовою.
 """
 
 def normalize(text):
-
     mapping = {
         "📚 курси": "які курси є у школі",
         "💰 ціна": "яка вартість навчання",
@@ -46,14 +53,14 @@ def normalize(text):
         "🎨 3d": "розкажи про курс 3d моделювання",
         "📹 блогінг": "розкажи про курс блогінгу"
     }
-
     return mapping.get(text.lower(), text)
 
 async def ask_ai(question):
-
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost",
+        "X-OpenRouter-Title": "itenai_bot"
     }
 
     payload = {
@@ -61,7 +68,8 @@ async def ask_ai(question):
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": question}
-        ]
+        ],
+        "temperature": 0.4
     }
 
     async with httpx.AsyncClient(timeout=60) as client:
@@ -71,12 +79,20 @@ async def ask_ai(question):
             json=payload
         )
 
+    print("STATUS:", r.status_code)
+
+    if r.status_code != 200:
+        return f"Помилка OpenRouter: {r.status_code}\n{r.text[:300]}"
+
     data = r.json()
+
+    if "choices" not in data:
+        return f"Некоректна відповідь AI: {data}"
+
     return data["choices"][0]["message"]["content"]
 
 @dp.message(CommandStart())
 async def start(message: types.Message):
-
     await message.answer(
         "👋 Вітаю в ItEnAi School\n\nОберіть кнопку або напишіть питання",
         reply_markup=keyboard
@@ -84,7 +100,6 @@ async def start(message: types.Message):
 
 @dp.message()
 async def handle(message: types.Message):
-
     text = message.text.strip()
 
     if text == "❌ Вийти":
@@ -96,15 +111,14 @@ async def handle(message: types.Message):
     try:
         answer = await ask_ai(question)
         await message.answer(answer, reply_markup=keyboard)
-
     except Exception as e:
+        print("ERROR:", e)
         await message.answer(f"Помилка AI: {e}")
 
 async def main():
-
+    await bot.delete_webhook(drop_pending_updates=True)
     me = await bot.get_me()
     print(f"Bot started @{me.username}")
-
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+import os
 import httpx
 
-app = FastAPI(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)
+app = FastAPI()
 
-OPENROUTER_API_KEY = "ВСТАВ_СЮДИ_OPENROUTER_API_KEY"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = "openai/gpt-4o-mini"
 
 SYSTEM_PROMPT = """
@@ -20,12 +21,6 @@ SYSTEM_PROMPT = """
 - Після завершення курсу учень отримує сертифікат.
 - Якщо користувач питає про точну ціну, скажи: "Щоб дізнатися актуальну вартість, напишіть менеджеру."
 - Якщо не вистачає даних, не вигадуй, а чесно скажи, що треба уточнити.
-
-Твоя задача:
-- допомагати потенційному клієнту
-- пояснювати курси
-- допомагати обрати напрям
-- бути схожим на живого менеджера підтримки
 """
 
 class ChatRequest(BaseModel):
@@ -60,11 +55,16 @@ async def chat(req: ChatRequest):
             json=payload
         )
 
+    print("STATUS:", r.status_code)
+    print("TEXT:", r.text)
+
     if r.status_code != 200:
-        return {
-            "response": f"Помилка OpenRouter: {r.status_code}\n{r.text[:500]}"
-        }
+        return {"response": f"Помилка OpenRouter: {r.status_code}\n{r.text[:500]}"}
 
     data = r.json()
+
+    if "choices" not in data:
+        return {"response": f"Некоректна відповідь AI: {data}"}
+
     text = data["choices"][0]["message"]["content"]
     return {"response": text}
