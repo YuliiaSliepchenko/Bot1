@@ -3,3 +3,4 @@ httpx
 fastapi
 uvicorn
 pydantic
+python-dotenv
