@@ -1,15 +1,27 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = "openai/gpt-4o-mini"
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 SYSTEM_PROMPT = """
-Ти — ввічливий AI-менеджер онлайн-школи ItEnAi School.
+Ти ввічливий AI-менеджер онлайн-школи ItEnAi School.
 Відповідай українською мовою.
 Відповідай коротко, чітко, дружньо і по суті.
 
@@ -28,15 +40,18 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"ok": True}
+    return {"ok": True, "message": "ItEnAi chat API is running"}
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
+    if not OPENROUTER_API_KEY:
+        return {"response": "Помилка сервера: не налаштовано OPENROUTER_API_KEY"}
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost",
-        "X-OpenRouter-Title": "easy_bot"
+        "HTTP-Referer": "https://itenaischool.com",
+        "X-OpenRouter-Title": "itenai_site_chat"
     }
 
     payload = {
@@ -48,23 +63,24 @@ async def chat(req: ChatRequest):
         "temperature": 0.4
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload
-        )
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload
+            )
 
-    print("STATUS:", r.status_code)
-    print("TEXT:", r.text)
+        if r.status_code != 200:
+            return {"response": f"Помилка OpenRouter: {r.status_code}"}
 
-    if r.status_code != 200:
-        return {"response": f"Помилка OpenRouter: {r.status_code}\n{r.text[:500]}"}
+        data = r.json()
 
-    data = r.json()
+        if "choices" not in data:
+            return {"response": "Сталася помилка AI. Спробуйте ще раз трохи пізніше."}
 
-    if "choices" not in data:
-        return {"response": f"Некоректна відповідь AI: {data}"}
+        text = data["choices"][0]["message"]["content"]
+        return {"response": text}
 
-    text = data["choices"][0]["message"]["content"]
-    return {"response": text}
+    except Exception:
+        return {"response": "Сервер тимчасово недоступний. Спробуйте ще раз пізніше."}
