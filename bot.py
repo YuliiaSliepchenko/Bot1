@@ -9,13 +9,10 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
-OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "openai/gpt-4o-mini"
 
 if not TOKEN:
     raise ValueError("Не знайдено BOT_TOKEN")
-if not OPENROUTER_KEY:
-    raise ValueError("Не знайдено OPENROUTER_API_KEY")
+
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -55,41 +52,13 @@ def normalize(text):
     }
     return mapping.get(text.lower(), text)
 
-async def ask_ai(question):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost",
-        "X-OpenRouter-Title": "itenai_bot"
-    }
-
-    payload = {
-        "model": MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": question}
-        ],
-        "temperature": 0.4
-    }
-
-    async with httpx.AsyncClient(timeout=60) as client:
+async def ask_api(question):
+    async with httpx.AsyncClient() as client:
         r = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload
+            "https://sitechat-production.up.railway.app/chat",
+            json={"message": question}
         )
-
-    print("STATUS:", r.status_code)
-
-    if r.status_code != 200:
-        return f"Помилка OpenRouter: {r.status_code}\n{r.text[:300]}"
-
-    data = r.json()
-
-    if "choices" not in data:
-        return f"Некоректна відповідь AI: {data}"
-
-    return data["choices"][0]["message"]["content"]
+    return r.json()["response"]
 
 @dp.message(CommandStart())
 async def start(message: types.Message):
@@ -109,7 +78,7 @@ async def handle(message: types.Message):
     question = normalize(text)
 
     try:
-        answer = await ask_ai(question)
+        answer = await ask_api(question)
         await message.answer(answer, reply_markup=keyboard)
     except Exception as e:
         print("ERROR:", e)

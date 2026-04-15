@@ -4,10 +4,13 @@ from pydantic import BaseModel
 import os
 import httpx
 from dotenv import load_dotenv
+from db import init_db, save_lead
 
 load_dotenv()
 
 app = FastAPI()
+
+init_db()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = "openai/gpt-4o-mini"
@@ -21,66 +24,76 @@ app.add_middleware(
 )
 
 SYSTEM_PROMPT = """
-Ти ввічливий AI-менеджер онлайн-школи ItEnAi School.
-Відповідай українською мовою.
-Відповідай коротко, чітко, дружньо і по суті.
+Ти менеджер онлайн школи ItEnAi School.
 
-Інформація про школу:
-- Це онлайн-школа для дітей і підлітків.
-- Є курси: Roblox, Python, AI, 3D-моделювання, блогінг.
-- Формат навчання: індивідуальні онлайн-заняття.
-- Стандартний курс: 24 уроки + фінальний проєкт.
-- Після завершення курсу учень отримує сертифікат.
-- Якщо користувач питає про точну ціну, скажи: "Щоб дізнатися актуальну вартість, напишіть менеджеру."
-- Якщо не вистачає даних, не вигадуй, а чесно скажи, що треба уточнити.
+Відповідай коротко, дружньо і по суті.
+Допомагай підібрати курс і підводь до запису.
 """
 
 class ChatRequest(BaseModel):
     message: str
 
-@app.get("/")
-def root():
-    return {"ok": True, "message": "ItEnAi chat API is running"}
-
 @app.post("/chat")
 async def chat(req: ChatRequest):
+
+    msg = req.message
+    msg_lower = msg.lower()
+
+    # 💰 ЦІНА
+    if "скільки" in msg_lower or "ціна" in msg_lower or "вартість" in msg_lower:
+        return {
+            "response": (
+                "💰 Вартість навчання:\n"
+                "• Групові заняття — 300 грн\n"
+                "• Індивідуальні — 400 грн\n\n"
+                "Хочете — підкажу, який формат краще підійде саме для вашої дитини 👇"
+            )
+        }
+
+    # 📞 ТЕЛЕФОН
+    if "телефон" in msg_lower or "номер" in msg_lower or "контакт" in msg_lower:
+        return {
+            "response": (
+                "📞 Менеджер школи:\n"
+                "+380931480343\n\n"
+                "Можете написати або подзвонити у зручний час 👍"
+            )
+        }
+
+    # 💾 ЗБЕРЕЖЕННЯ
+    save_lead("site", msg)
+
+    # 🔑 перевірка ключа
     if not OPENROUTER_API_KEY:
-        return {"response": "Помилка сервера: не налаштовано OPENROUTER_API_KEY"}
+        return {"response": "Помилка сервера: не налаштовано API ключ"}
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://itenaischool.com",
-        "X-OpenRouter-Title": "itenai_site_chat"
+        "Content-Type": "application/json"
     }
 
     payload = {
         "model": MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": req.message}
-        ],
-        "temperature": 0.4
+            {"role": "user", "content": msg}
+        ]
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient() as client:
             r = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers=headers,
                 json=payload
             )
 
-        if r.status_code != 200:
-            return {"response": f"Помилка OpenRouter: {r.status_code}"}
-
         data = r.json()
 
         if "choices" not in data:
-            return {"response": "Сталася помилка AI. Спробуйте ще раз трохи пізніше."}
+            return {"response": "Сталася помилка AI. Спробуйте ще раз."}
 
-        text = data["choices"][0]["message"]["content"]
-        return {"response": text}
+        return {"response": data["choices"][0]["message"]["content"]}
 
     except Exception:
         return {"response": "Сервер тимчасово недоступний. Спробуйте ще раз пізніше."}
