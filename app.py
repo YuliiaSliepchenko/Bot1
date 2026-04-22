@@ -48,86 +48,298 @@ async def chat(req: ChatRequest):
     msg = req.message
     msg_lower = msg.lower()
 
-    # 🔍 ТИП ПИТАННЯ
-    is_why = any(x in msg_lower for x in ["чому", "навіщо"])
-    is_interest = any(x in msg_lower for x in ["цікаво", "цікавого", "цікавий", "чим цікавий"])
-    is_price = any(x in msg_lower for x in ["ціна", "вартість", "скільки"])
-    is_time = any(x in msg_lower for x in ["час", "коли"])
-    is_signup = any(x in msg_lower for x in ["так", "да", "ок", "ага", "хочу", "запис", "записатись"])
 
-    # 🎯 ВИБІР КУРСУ
-    course_roblox = any(x in msg_lower for x in ["roblox", "роблокс", "lua"])
-    course_python = any(x in msg_lower for x in ["python", "пітон"])
-    course_3d = any(x in msg_lower for x in ["3d", "блендер"])
-    course_ai = any(x in msg_lower for x in ["ai", "штучний"])
-    course_blog = any(x in msg_lower for x in ["блог", "відео"])
-    course_pc = any(x in msg_lower for x in ["комп", "грамот", "пк", "кг"])
+    import random
 
-    if is_why and course_roblox:
-        return {"response": "Roblox — це не просто гра 👇\n\n• створення ігор\n• програмування\n• креативність\n\nЦе легкий старт в IT 🔥"}
+    confirm = ["Супер 👍", "Чудово 🙌", "Домовились 🔥", "Окей 👌"]
 
-    if is_why and course_python:
-        return {"response": "Python — основа програмування 👇\n\n• логіка\n• реальні навички\n• IT напрям\n\nСильний фундамент 🔥"}
+    details_intro = [
+        "Коротко поясню 👇",
+        "Ось як проходить курс 👇",
+        "Що буде на заняттях 👇"
+    ]
 
-    if is_why and course_3d:
-        return {"response": "3D — це творчість 👇\n\n• створення моделей\n• робота в Blender\n• креативність\n\nДітям дуже подобається 🎨"}
+    cta = [
+        "Хочеш записатися на пробний урок? 👇",
+        "Записуємо? 👇",
+        "Оформляємо? 👇"
+    ]
 
-    if is_why and course_ai:
-        return {"response": "AI — технології майбутнього 👇\n\n• нейромережі\n• генерація контенту\n• сучасні навички\n\nДуже перспективно 🔥"}
+    evening = [
+        "Можемо підібрати вечірній час 👍",
+        "Є зручні вечірні заняття",
+        "Підлаштуємось під ваш графік 👌"
+    ]
 
-    if is_why and course_blog:
-        return {"response": "Блогінг — сучасний навик 👇\n\n• відео\n• монтаж\n• впевненість\n\nДуже актуально 📱"}
+    # 🤔 WHY BLOCKS (ЧОМУ)
 
-    if is_why and course_pc:
-        return {"response": "Комп’ютерна грамотність — база 👇\n\n• робота з ПК\n• інтернет\n• безпека\n\nФундамент 👍"}
-
-    if is_signup:
+    # 🎮 ROBLOX
+    if "чому" in msg_lower and ("roblox" in msg_lower or "роблокс" in msg_lower):
         return {
             "response": (
-                "Супер 👍\n\n"
-                "Напишіть:\n• ім’я\n• вік\n\n"
-                "і підберемо час 👇"
+                "Гарне питання 👍\n\n"
+                "Roblox — це не просто гра 👇\n\n"
+                "• дитина створює свої ігри\n"
+                "• вчиться програмуванню\n"
+                "• розвиває логіку і креативність\n\n"
+                "Це найпростіший старт в IT 🔥\n\n"
+                "Хочете спробувати пробне заняття? 👇"
             )
         }
 
-    if is_interest and course_roblox:
-        return {"response": "Дітям подобається 👇\n\n• створюють свої ігри\n• грають у свої проєкти\n• показують друзям 🔥"}
+    # 💻 PYTHON
+    if "чому" in msg_lower and ("python" in msg_lower or "пітон" in msg_lower):
+        return {
+            "response": (
+                "Python — це база програмування 👇\n\n"
+                "• розвиток логіки\n"
+                "• реальні навички\n"
+                "• використання в IT і AI\n\n"
+                "Дуже сильний напрям 🔥\n\n"
+                "Хочете деталі? 👇"
+            )
+        }
 
-    if is_interest and course_python:
-        return {"response": "Цікаво тим що 👇\n\n• створюєш програми\n• вирішуєш задачі\n• відчуваєш себе програмістом 😎"}
+    # 🤖 AI
+    if "чому" in msg_lower and ("ai" in msg_lower or "штучний" in msg_lower):
+        return {
+            "response": (
+                "AI — це майбутнє 👇\n\n"
+                "• робота з нейромережами\n"
+                "• створення AI-проєктів\n"
+                "• сучасні навички\n\n"
+                "Дуже перспективно 🔥\n\n"
+                "Хочете спробувати? 👇"
+            )
+        }
 
-    
+    # 🎨 3D
+    if "чому" in msg_lower and ("3d" in msg_lower or "блендер" in msg_lower):
+        return {
+            "response": (
+                "3D — це творчість 👇\n\n"
+                "• створення моделей\n"
+                "• розвиток креативності\n"
+                "• робота в Blender\n\n"
+                "Дітям дуже заходить 🎨\n\n"
+                "Хочете деталі? 👇"
+            )
+        }
 
-    if is_interest and course_3d:
-        return {"response": "Найцікавіше 👇\n\n• створення персонажів\n• як у іграх\n• швидкий результат 🎮"}
+    # 📹 БЛОГІНГ
+    if "чому" in msg_lower and ("блог" in msg_lower or "відео"):
+        return {
+            "response": (
+                "Блогінг — це сучасно 👇\n\n"
+                "• відео і монтаж\n"
+                "• розвиток впевненості\n"
+                "• креативність\n\n"
+                "Дуже актуально 📱\n\n"
+                "Хочете більше деталей? 👇"
+            )
+        }
 
-    if is_interest and course_ai:
-        return {"response": "Вау ефект 👇\n\n• генеруєш картинки\n• працюєш з AI\n• сучасні технології 🤯"}
+    # 💻 КОМП'ЮТЕРНА ГРАМОТНІСТЬ
+    if "чому" in msg_lower and ("комп" in msg_lower or "грамот" in msg_lower or "кг"):
+        return {
+            "response": (
+                "Це база 👇\n\n"
+                "Комп’ютерна грамотність — фундамент\n\n"
+                "• робота з ПК\n"
+                "• інтернет і безпека\n"
+                "• файли і програми\n\n"
+                "Без цього складно далі 👍\n\n"
+                "Хочете записатися? 👇"
+            )
+        }
 
-    if is_interest and course_blog:
-        return {"response": "Що подобається 👇\n\n• зйомка\n• монтаж\n• власний контент 🎥"}
+    # 🔥 WHAT'S COOL (ЩО ЦІКАВОГО)
 
-    if is_interest and course_pc:
-        return {"response": "Цікаво тим що 👇\n\n• швидко вчишся користуватись ПК\n• впевненість\n• практичні навички 👍"}
+    # 🎨 3D / BLENDER
+    if any(x in msg_lower for x in ["цікаво", "цікавого", "особливого"]) and ("3d" in msg_lower or "блендер" in msg_lower):
+        return {
+            "response": (
+                "Ось що реально заходить дітям у 3D 👇\n\n"
+                "• можна створювати свої персонажі і світи\n"
+                "• як у іграх або мультиках 🎮\n"
+                "• швидкий результат (вже на перших заняттях)\n"
+                "• можна показувати друзям свої роботи 🔥\n\n"
+                "Це дуже затягує і розвиває креативність\n\n"
+                "Хочете спробувати пробне заняття? 👇"
+            )
+        }
 
-    if course_roblox:
-        return {"response": "🎮 Roblox\n• створення ігор\n• Lua\n• проекти\n💰 250 / 450 грн"}
+    # 🎮 ROBLOX
+    if any(x in msg_lower for x in ["цікаво", "цікавого", "особливого"]) and ("roblox" in msg_lower or "роблокс" in msg_lower):
+        return {
+            "response": (
+                "Ось що дітям найбільше подобається в Roblox 👇\n\n"
+                "• створюють свої ігри\n"
+                "• додають персонажів і механіки\n"
+                "• можуть дати друзям пограти 🎮\n"
+                "• відчуття 'я зробив свою гру' 🔥\n\n"
+                "Це дуже мотивує дітей\n\n"
+                "Хочете спробувати? 👇"
+            )
+        }
 
-    if course_python:
-        return {"response": "💻 Python\n• програмування\n• логіка\n• проекти\n💰 250 / 450 грн"}
+    # 💻 PYTHON
+    if any(x in msg_lower for x in ["цікаво", "цікавого"]) and ("python" in msg_lower or "пітон" in msg_lower):
+        return {
+            "response": (
+                "Що цікавого в Python 👇\n\n"
+                "• створення своїх програм\n"
+                "• логічні задачі (як головоломки)\n"
+                "• перші проекти вже на курсі\n"
+                "• відчуття 'я програміст' 😎\n\n"
+                "Це вже більш серйозний рівень\n\n"
+                "Хочете деталі? 👇"
+            )
+        }
 
-    if course_3d:
-        return {"response": "🎨 3D\n• Blender\n• моделі\n• проекти\n💰 250 / 450 грн"}
+    # 🤖 AI
+    if any(x in msg_lower for x in ["цікаво", "цікавого"]) and ("ai" in msg_lower or "штучний" in msg_lower):
+        return {
+            "response": (
+                "Що реально круто в AI 👇\n\n"
+                "• створення картинок і текстів\n"
+                "• робота з нейромережами\n"
+                "• ефект 'вау, це працює!' 🤯\n"
+                "• сучасні технології\n\n"
+                "Дітям дуже цікаво\n\n"
+                "Хочете спробувати? 👇"
+            )
+        }
 
-    if course_ai:
-        return {"response": "🤖 AI\n• нейромережі\n• проекти\n💰 250 / 450 грн"}
+    # 📹 БЛОГІНГ
+    if any(x in msg_lower for x in ["цікаво", "цікавого"]) and ("блог" in msg_lower or "відео"):
+        return {
+            "response": (
+                "Що цікаво в блогінгу 👇\n\n"
+                "• зйомка відео 🎥\n"
+                "• монтаж і ефекти\n"
+                "• створення свого контенту\n"
+                "• розвиток впевненості\n\n"
+                "Дітям це дуже подобається\n\n"
+                "Хочете дізнатись більше? 👇"
+            )
+        }
 
-    if course_blog:
-        return {"response": "📹 Блогінг\n• відео\n• монтаж\n💰 250 / 450 грн"}
+    # 💻 КОМП'ЮТЕРНА ГРАМОТНІСТЬ
+    if any(x in msg_lower for x in ["цікаво", "цікавого"]) and ("комп" in msg_lower or "грамот" in msg_lower or "кг"):
+        return {
+            "response": (
+                "Що цікавого в цьому курсі 👇\n\n"
+                "• дитина починає впевнено користуватись ПК\n"
+                "• розуміє інтернет і безпеку\n"
+                "• робить це швидко і без страху\n\n"
+                "Це дає сильну базу для майбутнього 👍\n\n"
+                "Хочете спробувати? 👇"
+            )
+        }
 
-    if course_pc:
-        return {"response": "💻 Комп’ютерна грамотність\n• ПК\n• інтернет\n• безпека\n💰 250 / 450 грн"}
+    # 🎮 ROBLOX
+    if any(x in msg_lower for x in ["roblox", "роблокс", "lua"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "🎮 Курс Roblox\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• створення ігор\n"
+                "• програмування на Lua\n"
+                "• власні проекти\n\n"
+                "💰 250 грн (група)\n"
+                "💰 450 грн (індивідуально)\n\n"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
+            )
+        }
 
+    # 💻 PYTHON
+    if any(x in msg_lower for x in ["python", "пітон"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "💻 Курс Python\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• програмування\n"
+                "• логіка\n"
+                "• створення проєктів\n\n"
+                "💰 250 грн (група)\n"
+                "💰 450 грн (індивідуально)\n\n"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
+            )
+        }
+
+    # 🤖 AI
+    if any(x in msg_lower for x in ["ai", "штучний"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "🤖 Курс AI\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• робота з нейромережами\n"
+                "• створення AI-проєктів\n"
+                "• генерація текстів і зображень\n\n"
+                "💰 250 грн (група)\n"
+                "💰 450 грн (індивідуально)\n\n"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
+            )
+        }
+
+    # 🎨 3D
+    if any(x in msg_lower for x in ["3d", "блендер"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "🎨 Курс 3D моделювання\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• робота в Blender\n"
+                "• створення моделей\n"
+                "• власні проєкти\n\n"
+                "💰 250 грн (група)\n"
+                "💰 450 грн (індивідуально)\n\n"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
+            )
+        }
+
+    # 📹 БЛОГІНГ
+    if any(x in msg_lower for x in ["блог", "відео", "ютуб"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "📹 Курс блогінгу\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• зйомка відео\n"
+                "• монтаж\n"
+                "• розвиток каналу\n\n"
+                "💰 250 грн (група)\n"
+                "💰 450 грн (індивідуально)\n\n"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
+            )
+        }
+
+    # 💻 КОМП'ЮТЕРНА ГРАМОТНІСТЬ
+    if any(x in msg_lower for x in ["комп", "пк", "комп'ютер", "грамот", "кг"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "💻 Курс комп'ютерної грамотності\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• базова робота з комп’ютером\n"
+                "• інтернет і безпека\n"
+                "• робота з файлами\n"
+                "• основи програм\n\n"
+                "💰 250 грн (група)\n"
+                "💰 450 грн (індивідуально)\n\n"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
+            )
+        }
 
     # 📚 СПИСОК КУРСІВ
     if "курси" in msg_lower or "список" in msg_lower or "що є" in msg_lower:
@@ -168,9 +380,21 @@ async def chat(req: ChatRequest):
     if any(x in msg_lower for x in ["рок", "рік", "років"]):
         return {
             "response": (
-                "Супер 👍\n\n"
+                f"{random.choice(confirm)}\n\n"
                 "Фіксую заявку 👍\n\n"
                 "Підберемо зручний час 👇"
+            )
+        }
+
+    if msg_lower in ["так", "да", "ага", "ок", "окей"]:
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "Давайте запишемо дитину на пробний урок 👇\n\n"
+                "Напишіть:\n"
+                "• ім’я\n"
+                "• вік\n\n"
+                "і підберемо зручний час (можна навіть ввечері) 👍"
             )
         }
 
@@ -194,7 +418,7 @@ async def chat(req: ChatRequest):
         }
 
     # ⏰ ПРО ЧАС
-    if is_time:
+    if "час" in msg_lower or "коли" in msg_lower:
         return {
             "response": (
                 "Маємо зручні варіанти 👇\n\n"
