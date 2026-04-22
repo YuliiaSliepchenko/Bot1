@@ -49,17 +49,42 @@ async def chat(req: ChatRequest):
     msg_lower = msg.lower()
 
 
+    import random
+
+    confirm = ["Супер 👍", "Чудово 🙌", "Домовились 🔥", "Окей 👌"]
+
+    details_intro = [
+        "Коротко поясню 👇",
+        "Ось як проходить курс 👇",
+        "Що буде на заняттях 👇"
+    ]
+
+    cta = [
+        "Хочеш записатися на пробний урок? 👇",
+        "Записуємо? 👇",
+        "Оформляємо? 👇"
+    ]
+
+    evening = [
+        "Можемо підібрати вечірній час 👍",
+        "Є зручні вечірні заняття",
+        "Підлаштуємось під ваш графік 👌"
+    ]
+
     # 🎮 ROBLOX
     if any(x in msg_lower for x in ["roblox", "роблокс", "lua"]):
         return {
             "response": (
+                f"{random.choice(confirm)}\n\n"
                 "🎮 Курс Roblox\n\n"
+                f"{random.choice(details_intro)}\n"
                 "• створення ігор\n"
                 "• програмування на Lua\n"
                 "• власні проекти\n\n"
                 "💰 250 грн (група)\n"
                 "💰 450 грн (індивідуально)\n\n"
-                "Хочеш записатися на пробний урок? 👇"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
             )
         }
 
@@ -67,53 +92,85 @@ async def chat(req: ChatRequest):
     if any(x in msg_lower for x in ["python", "пітон"]):
         return {
             "response": (
+                f"{random.choice(confirm)}\n\n"
                 "💻 Курс Python\n\n"
+                f"{random.choice(details_intro)}\n"
                 "• програмування\n"
                 "• логіка\n"
-                "• AI-проекти\n\n"
+                "• створення проєктів\n\n"
                 "💰 250 грн (група)\n"
                 "💰 450 грн (індивідуально)\n\n"
-                "Хочеш записатися на пробний урок? 👇"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
             )
         }
 
     # 🤖 AI
-    if "ai" in msg_lower:
+    if any(x in msg_lower for x in ["ai", "штучний"]):
         return {
             "response": (
+                f"{random.choice(confirm)}\n\n"
                 "🤖 Курс AI\n\n"
+                f"{random.choice(details_intro)}\n"
                 "• робота з нейромережами\n"
-                "• створення AI-проектів\n\n"
+                "• створення AI-проєктів\n"
+                "• генерація текстів і зображень\n\n"
                 "💰 250 грн (група)\n"
                 "💰 450 грн (індивідуально)\n\n"
-                "Хочеш записатися? 👇"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
             )
         }
 
     # 🎨 3D
-    if "3d" in msg_lower:
+    if any(x in msg_lower for x in ["3d", "блендер"]):
         return {
             "response": (
-                "🎨 Курс 3D\n\n"
-                "• моделювання в Blender\n"
-                "• створення моделей\n\n"
+                f"{random.choice(confirm)}\n\n"
+                "🎨 Курс 3D моделювання\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• робота в Blender\n"
+                "• створення моделей\n"
+                "• власні проєкти\n\n"
                 "💰 250 грн (група)\n"
                 "💰 450 грн (індивідуально)\n\n"
-                "Хочеш записатися? 👇"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
             )
         }
 
     # 📹 БЛОГІНГ
-    if "блог" in msg_lower or "відео" in msg_lower:
+    if any(x in msg_lower for x in ["блог", "відео", "ютуб"]):
         return {
             "response": (
+                f"{random.choice(confirm)}\n\n"
                 "📹 Курс блогінгу\n\n"
+                f"{random.choice(details_intro)}\n"
                 "• зйомка відео\n"
                 "• монтаж\n"
                 "• розвиток каналу\n\n"
                 "💰 250 грн (група)\n"
                 "💰 450 грн (індивідуально)\n\n"
-                "Хочеш записатися? 👇"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
+            )
+        }
+
+    # 💻 КОМП'ЮТЕРНА ГРАМОТНІСТЬ
+    if any(x in msg_lower for x in ["комп", "пк", "комп'ютер", "грамот"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "💻 Курс комп'ютерної грамотності\n\n"
+                f"{random.choice(details_intro)}\n"
+                "• базова робота з комп’ютером\n"
+                "• інтернет і безпека\n"
+                "• робота з файлами\n"
+                "• основи програм\n\n"
+                "💰 250 грн (група)\n"
+                "💰 450 грн (індивідуально)\n\n"
+                f"{random.choice(evening)}\n\n"
+                f"{random.choice(cta)}"
             )
         }
 
@@ -152,14 +209,44 @@ async def chat(req: ChatRequest):
             )
         }
 
+    # 🧾 ІМ'Я + ВІК
+    if any(x in msg_lower for x in ["рок", "рік", "років"]):
+        return {
+            "response": (
+                f"{random.choice(confirm)}\n\n"
+                "Фіксую заявку 👍\n\n"
+                "Підберемо зручний час 👇"
+            )
+        }
+
     if msg_lower in ["так", "да", "ага", "ок", "окей"]:
         return {
             "response": (
-                "Супер 👍\n\n"
-                "Напишіть, будь ласка:\n"
-                "• ім’я дитини\n"
+                f"{random.choice(confirm)}\n\n"
+                "Давайте запишемо дитину на пробний урок 👇\n\n"
+                "Напишіть:\n"
+                "• ім’я\n"
                 "• вік\n\n"
-                "і підберемо зручний час для пробного уроку (можна навіть ввечері) 👇"
+                "і підберемо зручний час (можна навіть ввечері) 👍"
+            )
+        }
+
+    # 🤔 НЕЗРОЗУМІЛО
+    if len(msg_lower) < 3:
+        return {
+            "response": "Трохи не зрозумів 🙂 Напишіть, що саме цікавить: курс, ціна чи запис 👇"
+        }
+
+    # 🤷 НЕ ЗНАЄ
+    if "не знаю" in msg_lower:
+        return {
+            "response": (
+                "Нічого страшного 🙂\n\n"
+                "Якщо коротко:\n"
+                "🎮 ігри → Roblox\n"
+                "💻 програмування → Python\n"
+                "🤖 щось сучасне → AI\n\n"
+                "Що ближче?"
             )
         }
 
