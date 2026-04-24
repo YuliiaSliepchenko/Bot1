@@ -60,7 +60,7 @@ async def chat(req: ChatRequest):
     # 🎯 ВИБІР КУРСУ
     course_roblox = any(x in msg_lower for x in ["roblox", "роблокс", "lua"])
     course_python = any(x in msg_lower for x in ["python", "пітон"])
-    course_3d = any(x in msg_lower for x in ["3d", "блендер", "моделювання"])
+    course_3d = any(x in msg_lower for x in ["3d", "блендер", "моделювання", "3д"])
     course_ai = any(x in msg_lower for x in ["ai", "штучний", "інтелект"])
     course_blog = any(x in msg_lower for x in ["блог", "відео", "зйомка"])
     course_pc = any(x in msg_lower for x in ["комп", "грамот", "пк", "кг"])
