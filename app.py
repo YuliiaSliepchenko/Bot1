@@ -52,17 +52,17 @@ async def chat(req: ChatRequest):
     is_why = any(x in msg_lower for x in ["чому", "навіщо"])
     is_interest = any(x in msg_lower for x in ["цікаво", "цікавого", "цікавий", "чим цікавий"])
     is_price = any(x in msg_lower for x in ["ціна", "вартість", "скільки"])
-    is_time = any(x in msg_lower for x in ["час", "коли"])
+    is_time = any(x in msg_lower for x in ["час", "коли", "наскільки"])
     words = msg_lower.split()
 
-    is_signup = any(x in words for x in ["так", "да", "ок", "ага", "хочу", "запис", "записатись"])
+    is_signup = any(x in words for x in ["так", "да", "ок", "ага", "хочу", "запис", "записатись", "давайте"])
 
     # 🎯 ВИБІР КУРСУ
     course_roblox = any(x in msg_lower for x in ["roblox", "роблокс", "lua"])
     course_python = any(x in msg_lower for x in ["python", "пітон"])
-    course_3d = any(x in msg_lower for x in ["3d", "блендер"])
-    course_ai = any(x in msg_lower for x in ["ai", "штучний"])
-    course_blog = any(x in msg_lower for x in ["блог", "відео"])
+    course_3d = any(x in msg_lower for x in ["3d", "блендер", "моделювання"])
+    course_ai = any(x in msg_lower for x in ["ai", "штучний", "інтелект"])
+    course_blog = any(x in msg_lower for x in ["блог", "відео", "зйомка"])
     course_pc = any(x in msg_lower for x in ["комп", "грамот", "пк", "кг"])
 
 
@@ -129,22 +129,22 @@ async def chat(req: ChatRequest):
         return {"response": "Цікаво тим що 👇\n\n• швидко вчишся користуватись ПК\n• впевненість\n• практичні навички 👍"}
 
     if course_roblox and not ("що" in msg_lower or "чому" in msg_lower):
-        return {"response": "🎮 Roblox\n• створення ігор\n• Lua\n• проекти\n💰 250 / 450 грн"}
+        return {"response": "🎮 Roblox\n• створення вланих проєктів, ігор, також цікаві карти\n• Lua програмування де можна кодувати на рівні про\n• проекти, задачі\n💰 250 / 450 грн"}
 
     if course_python and not ("що" in msg_lower or "чому" in msg_lower):
-        return {"response": "💻 Python\n• програмування\n• логіка\n• проекти\n💰 250 / 450 грн"}
+        return {"response": "💻 Python\n• програмування на базі пайтон\n• логіка, цікаві візуальні ігри\n• проекти, завдання\n💰 250 / 450 грн"}
 
     if course_3d and not ("що" in msg_lower or "чому" in msg_lower):
-        return {"response": "🎨 3D\n• Blender\n• моделі\n• проекти\n💰 250 / 450 грн"}
+        return {"response": "🎨 3D\n• Blender\n• моделі, свої персонажі\n• проекти, персоналі задачі по створенню моделей\n💰 250 / 450 грн"}
 
     if course_ai and not ("що" in msg_lower or "чому" in msg_lower):
-        return {"response": "🤖 AI\n• нейромережі\n• проекти\n💰 250 / 450 грн"}
+        return {"response": "🤖 AI\n• нейромережі, їх поведінка їхні задачі та завдання\n• проекти, навчанню штучного інтелекту, як з ним комунікувати правильно\n💰 250 / 450 грн"}
 
     if course_blog and not ("що" in msg_lower or "чому" in msg_lower):
-        return {"response": "📹 Блогінг\n• відео\n• монтаж\n💰 250 / 450 грн"}
+        return {"response": "📹 Блогінг\n• відео, уроки\n• монтаж, навчання правильного монтажу\n💰 250 / 450 грн"}
 
     if course_pc and not ("що" in msg_lower or "чому" in msg_lower):
-        return {"response": "💻 Комп’ютерна грамотність\n• ПК\n• інтернет\n• безпека\n💰 250 / 450 грн"}
+        return {"response": "💻 Комп’ютерна грамотність, навчання базовим навичкам користування пк\n• Що таке персональний комп'ютер\n• інтернет та передача данних\n• безпека і боротьба з зловмисним ПЗ\n💰 250 / 450 грн"}
 
 
     # 📚 СПИСОК КУРСІВ
