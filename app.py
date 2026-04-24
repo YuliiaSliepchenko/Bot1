@@ -53,7 +53,9 @@ async def chat(req: ChatRequest):
     is_interest = any(x in msg_lower for x in ["цікаво", "цікавого", "цікавий", "чим цікавий"])
     is_price = any(x in msg_lower for x in ["ціна", "вартість", "скільки"])
     is_time = any(x in msg_lower for x in ["час", "коли"])
-    is_signup = any(x in msg_lower for x in ["так", "да", "ок", "ага", "хочу", "запис", "записатись"])
+    words = msg_lower.split()
+
+    is_signup = any(x in words for x in ["так", "да", "ок", "ага", "хочу", "запис", "записатись"])
 
     # 🎯 ВИБІР КУРСУ
     course_roblox = any(x in msg_lower for x in ["roblox", "роблокс", "lua"])
@@ -62,6 +64,24 @@ async def chat(req: ChatRequest):
     course_ai = any(x in msg_lower for x in ["ai", "штучний"])
     course_blog = any(x in msg_lower for x in ["блог", "відео"])
     course_pc = any(x in msg_lower for x in ["комп", "грамот", "пк", "кг"])
+
+
+    if "що таке" in msg_lower or "що це" in msg_lower:
+
+        if course_python:
+            return {"response": "Python — це мова програмування, на якій діти створюють ігри, програми та навіть AI 🤖"}
+
+        if course_roblox:
+            return {"response": "Roblox — це платформа де діти створюють свої ігри 🎮 та вчаться програмувати"}
+
+        if course_ai:
+            return {"response": "AI — це штучний інтелект 🤖 Діти вчаться створювати свої AI-проекти"}
+
+        if course_3d:
+            return {"response": "3D-моделювання — це створення об'ємних моделей у Blender 🎨"}
+
+        if course_blog:
+            return {"response": "Блогінг — це створення відео, монтаж і розвиток власного каналу 📹"}
 
     if is_why and course_roblox:
         return {"response": "Roblox — це не просто гра 👇\n\n• створення ігор\n• програмування\n• креативність\n\nЦе легкий старт в IT 🔥"}
@@ -81,7 +101,7 @@ async def chat(req: ChatRequest):
     if is_why and course_pc:
         return {"response": "Комп’ютерна грамотність — база 👇\n\n• робота з ПК\n• інтернет\n• безпека\n\nФундамент 👍"}
 
-    if is_signup:
+    if is_signup and not (course_python or course_roblox or course_ai or course_3d or course_blog or course_pc):
         return {
             "response": (
                 "Супер 👍\n\n"
@@ -96,8 +116,6 @@ async def chat(req: ChatRequest):
     if is_interest and course_python:
         return {"response": "Цікаво тим що 👇\n\n• створюєш програми\n• вирішуєш задачі\n• відчуваєш себе програмістом 😎"}
 
-    
-
     if is_interest and course_3d:
         return {"response": "Найцікавіше 👇\n\n• створення персонажів\n• як у іграх\n• швидкий результат 🎮"}
 
@@ -110,22 +128,22 @@ async def chat(req: ChatRequest):
     if is_interest and course_pc:
         return {"response": "Цікаво тим що 👇\n\n• швидко вчишся користуватись ПК\n• впевненість\n• практичні навички 👍"}
 
-    if course_roblox:
+    if course_roblox and not ("що" in msg_lower or "чому" in msg_lower):
         return {"response": "🎮 Roblox\n• створення ігор\n• Lua\n• проекти\n💰 250 / 450 грн"}
 
-    if course_python:
+    if course_python and not ("що" in msg_lower or "чому" in msg_lower):
         return {"response": "💻 Python\n• програмування\n• логіка\n• проекти\n💰 250 / 450 грн"}
 
-    if course_3d:
+    if course_3d and not ("що" in msg_lower or "чому" in msg_lower):
         return {"response": "🎨 3D\n• Blender\n• моделі\n• проекти\n💰 250 / 450 грн"}
 
-    if course_ai:
+    if course_ai and not ("що" in msg_lower or "чому" in msg_lower):
         return {"response": "🤖 AI\n• нейромережі\n• проекти\n💰 250 / 450 грн"}
 
-    if course_blog:
+    if course_blog and not ("що" in msg_lower or "чому" in msg_lower):
         return {"response": "📹 Блогінг\n• відео\n• монтаж\n💰 250 / 450 грн"}
 
-    if course_pc:
+    if course_pc and not ("що" in msg_lower or "чому" in msg_lower):
         return {"response": "💻 Комп’ютерна грамотність\n• ПК\n• інтернет\n• безпека\n💰 250 / 450 грн"}
 
 
