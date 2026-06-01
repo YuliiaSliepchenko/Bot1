@@ -3,8 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import httpx
+from fastapi.responses import RedirectResponse
+from urllib.parse import urlencode
 from dotenv import load_dotenv
-from db import init_db, save_lead
+from db import init_db, save_lead, save_google_tokens, get_google_tokens
 
 load_dotenv()
 
@@ -14,6 +16,9 @@ init_db()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = "openai/gpt-4o-mini"
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
 app.add_middleware(
     CORSMiddleware,
@@ -282,3 +287,82 @@ async def chat(req: ChatRequest):
 
     except Exception:
         return {"response": "Сервер тимчасово недоступний. Спробуйте ще раз пізніше."}
+
+
+@app.get("/api/google/status")
+async def google_status():
+    tokens = get_google_tokens()
+
+    return {
+        "configured": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI),
+        "connected": bool(tokens),
+        "email": tokens["email"] if tokens else None
+    }
+
+
+@app.get("/api/google/login")
+async def google_login():
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
+        return {"error": "Google OAuth змінні не налаштовані в Railway"}
+
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email",
+        "access_type": "offline",
+        "prompt": "consent"
+    }
+
+    google_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+
+    return RedirectResponse(google_url)
+
+
+@app.get("/api/google/callback")
+async def google_callback(code: str):
+    async with httpx.AsyncClient() as client:
+        token_res = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": GOOGLE_REDIRECT_URI,
+                "grant_type": "authorization_code"
+            }
+        )
+
+        token_data = token_res.json()
+
+        access_token = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token")
+
+        if not access_token:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати access_token",
+                "details": token_data
+            }
+
+        user_res = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            }
+        )
+
+        user_data = user_res.json()
+        email = user_data.get("email", "unknown@gmail.com")
+
+        save_google_tokens(
+            email=email,
+            access_token=access_token,
+            refresh_token=refresh_token
+        )
+
+    return {
+        "success": True,
+        "message": "Google акаунт підключено",
+        "email": email
+    }
