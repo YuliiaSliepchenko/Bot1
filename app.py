@@ -6,7 +6,7 @@ import httpx
 from fastapi.responses import RedirectResponse
 from urllib.parse import urlencode
 from dotenv import load_dotenv
-from db import init_db, save_lead, save_google_tokens, get_google_tokens
+from db import init_db, save_lead, save_google_tokens, get_google_tokens, delete_google_tokens
 
 load_dotenv()
 
@@ -365,4 +365,12 @@ async def google_callback(code: str):
         "success": True,
         "message": "Google акаунт підключено",
         "email": email
+    }
+
+@app.post("/api/google/disconnect")
+async def google_disconnect():
+    delete_google_tokens()
+    return {
+        "success": True,
+        "message": "Google акаунт відключено"
     }

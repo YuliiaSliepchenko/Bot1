@@ -77,3 +77,12 @@ def get_google_tokens():
         "access_token": row[1],
         "refresh_token": row[2]
     }
+
+def delete_google_tokens():
+    conn = sqlite3.connect("school.db")
+    cur = conn.cursor()
+
+    cur.execute("DELETE FROM google_tokens")
+
+    conn.commit()
+    conn.close()
