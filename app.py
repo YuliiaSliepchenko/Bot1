@@ -372,14 +372,14 @@ async def google_callback(code: str):
             refresh_token=refresh_token
         )
 
-    redirect_url = CRM_URL + ("&" if "?" in CRM_URL else "?") + urlencode({
-    "page": "integrations",
-    "google": "connected",
-    "open": "googlehub",
-    "email": email
-})
+        redirect_url = CRM_URL + ("&" if "?" in CRM_URL else "?") + urlencode({
+            "page": "integrations",
+            "google": "connected",
+            "open": "googlehub",
+            "email": email
+        })
 
-return RedirectResponse(redirect_url)
+        return RedirectResponse(redirect_url)
 
 @app.post("/api/google/disconnect")
 async def google_disconnect():
