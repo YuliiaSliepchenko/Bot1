@@ -20,6 +20,7 @@ MODEL = "openai/gpt-4o-mini"
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+CRM_URL = os.getenv("CRM_URL", "http://127.0.0.1:5500/index.html")
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -371,11 +372,14 @@ async def google_callback(code: str):
             refresh_token=refresh_token
         )
 
-    return {
-        "success": True,
-        "message": "Google акаунт підключено",
-        "email": email
-    }
+    redirect_url = CRM_URL + ("&" if "?" in CRM_URL else "?") + urlencode({
+    "page": "integrations",
+    "google": "connected",
+    "open": "googlehub",
+    "email": email
+})
+
+return RedirectResponse(redirect_url)
 
 @app.post("/api/google/disconnect")
 async def google_disconnect():
