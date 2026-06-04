@@ -29,6 +29,7 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive.metadata.readonly",
 ]
 
 app.add_middleware(
@@ -700,3 +701,174 @@ async def hub_gemini(req: HubGeminiRequest):
             "error": "Помилка AI",
             "details": str(e)
         }
+
+
+@app.get("/api/google/drive/files")
+async def google_drive_files(type: str = "workspace", page_size: int = 50):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    mime_map = {
+        "sheets": "application/vnd.google-apps.spreadsheet",
+        "docs": "application/vnd.google-apps.document",
+        "slides": "application/vnd.google-apps.presentation"
+    }
+
+    query_parts = ["trashed = false"]
+
+    if type in mime_map:
+        query_parts.append(f"mimeType = '{mime_map[type]}'")
+    elif type == "workspace":
+        query_parts.append(
+            "("
+            "mimeType = 'application/vnd.google-apps.spreadsheet' "
+            "or mimeType = 'application/vnd.google-apps.document' "
+            "or mimeType = 'application/vnd.google-apps.presentation'"
+            ")"
+        )
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.get(
+            "https://www.googleapis.com/drive/v3/files",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            params={
+                "q": " and ".join(query_parts),
+                "pageSize": max(1, min(page_size, 100)),
+                "orderBy": "modifiedTime desc",
+                "fields": "files(id,name,mimeType,webViewLink,createdTime,modifiedTime)"
+            }
+        )
+
+    if res.status_code != 200:
+        return {
+            "success": False,
+            "error": "Не вдалося отримати список Google Drive",
+            "details": res.json()
+        }
+
+    return {
+        "success": True,
+        "email": auth["email"],
+        "files": res.json().get("files", [])
+    }
+
+
+@app.get("/api/google/calendar/list")
+async def google_calendar_list(max_results: int = 20):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    time_min = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.get(
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            params={
+                "timeMin": time_min,
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "maxResults": max(1, min(max_results, 50))
+            }
+        )
+
+    if res.status_code != 200:
+        return {
+            "success": False,
+            "error": "Не вдалося отримати події календаря",
+            "details": res.json()
+        }
+
+    events = []
+
+    for item in res.json().get("items", []):
+        events.append({
+            "id": item.get("id"),
+            "summary": item.get("summary", "(без назви)"),
+            "description": item.get("description", ""),
+            "location": item.get("location", ""),
+            "start": item.get("start", {}),
+            "end": item.get("end", {}),
+            "htmlLink": item.get("htmlLink", "")
+        })
+
+    return {
+        "success": True,
+        "email": auth["email"],
+        "events": events
+    }
+
+
+class SheetCreateRequest(BaseModel):
+    title: str = "ItEnAi CRM — Ліди"
+
+
+@app.post("/api/google/sheets/create")
+async def google_sheets_create(req: SheetCreateRequest):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    payload = {
+        "properties": {
+            "title": req.title
+        },
+        "sheets": [
+            {
+                "properties": {
+                    "title": "Ліди"
+                }
+            }
+        ]
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.post(
+            "https://sheets.googleapis.com/v4/spreadsheets",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+
+    if res.status_code not in [200, 201]:
+        return {
+            "success": False,
+            "error": "Не вдалося створити Google Sheet",
+            "details": res.json()
+        }
+
+    sheet = res.json()
+    spreadsheet_id = sheet.get("spreadsheetId")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        await client.put(
+            f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/Ліди!A1:E1",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            params={
+                "valueInputOption": "USER_ENTERED"
+            },
+            json={
+                "values": [[
+                    "Дата",
+                    "Імʼя",
+                    "Телефон",
+                    "Курс",
+                    "Коментар"
+                ]]
+            }
+        )
+
+    return {
+        "success": True,
+        "spreadsheetId": spreadsheet_id,
+        "spreadsheetUrl": sheet.get("spreadsheetUrl"),
+        "title": req.title
+    }
