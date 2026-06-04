@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import os
 import httpx
 import base64
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from urllib.parse import urlencode
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -1072,3 +1072,73 @@ async def google_docs_create(req: GoogleDocCreateRequest):
         "title": req.title,
         "documentUrl": f"https://docs.google.com/document/d/{document_id}/edit"
     }
+
+class GoogleSlidesCreateRequest(BaseModel):
+    title: str = "ItEnAi CRM Презентація"
+
+
+@app.post("/api/google/slides/create")
+async def google_slides_create(req: GoogleSlidesCreateRequest):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.post(
+            "https://slides.googleapis.com/v1/presentations",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "title": req.title
+            }
+        )
+
+    if res.status_code not in [200, 201]:
+        return {
+            "success": False,
+            "error": "Не вдалося створити Google Slides презентацію",
+            "details": res.json()
+        }
+
+    presentation = res.json()
+    presentation_id = presentation.get("presentationId")
+
+    return {
+        "success": True,
+        "presentationId": presentation_id,
+        "title": req.title,
+        "presentationUrl": f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+    }
+
+
+@app.get("/api/google/slides/export-pptx/{presentation_id}")
+async def google_slides_export_pptx(presentation_id: str):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        res = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{presentation_id}/export",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            params={
+                "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            }
+        )
+
+    if res.status_code != 200:
+        return {
+            "success": False,
+            "error": "Не вдалося експортувати презентацію у PowerPoint",
+            "details": res.text
+        }
+
+    return Response(
+        content=res.content,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={
+            "Content-Disposition": f'attachment; filename="itenai-presentation-{presentation_id}.pptx"'
+        }
+    )
