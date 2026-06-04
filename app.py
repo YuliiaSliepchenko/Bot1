@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import httpx
+import base64
 from fastapi.responses import RedirectResponse
 from urllib.parse import urlencode
 from datetime import datetime, timezone
@@ -929,5 +930,76 @@ async def google_calendar_create(req: CalendarCreateRequest):
             "htmlLink": event.get("htmlLink"),
             "start": event.get("start"),
             "end": event.get("end")
+        }
+    }
+
+
+def decode_gmail_body(data: str) -> str:
+    if not data:
+        return ""
+
+    try:
+        padding = "=" * (-len(data) % 4)
+        decoded = base64.urlsafe_b64decode((data + padding).encode("utf-8"))
+        return decoded.decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def find_gmail_body(payload: dict) -> str:
+    if not payload:
+        return ""
+
+    mime_type = payload.get("mimeType", "")
+    body_data = payload.get("body", {}).get("data")
+
+    if body_data and ("text/plain" in mime_type or "text/html" in mime_type):
+        return decode_gmail_body(body_data)
+
+    for part in payload.get("parts", []) or []:
+        found = find_gmail_body(part)
+        if found:
+            return found
+
+    return ""
+
+
+@app.get("/api/google/gmail/read/{message_id}")
+async def google_gmail_read(message_id: str):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.get(
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            params={
+                "format": "full"
+            }
+        )
+
+    if res.status_code != 200:
+        return {
+            "success": False,
+            "error": "Не вдалося прочитати лист Gmail",
+            "details": res.json()
+        }
+
+    data = res.json()
+    headers = data.get("payload", {}).get("headers", [])
+
+    return {
+        "success": True,
+        "message": {
+            "id": data.get("id"),
+            "threadId": data.get("threadId"),
+            "from": extract_gmail_header(headers, "From"),
+            "to": extract_gmail_header(headers, "To"),
+            "subject": extract_gmail_header(headers, "Subject") or "(без теми)",
+            "date": extract_gmail_header(headers, "Date"),
+            "snippet": data.get("snippet", ""),
+            "body": find_gmail_body(data.get("payload", {}))
         }
     }
