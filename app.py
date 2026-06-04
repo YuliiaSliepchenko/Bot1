@@ -1003,3 +1003,72 @@ async def google_gmail_read(message_id: str):
             "body": find_gmail_body(data.get("payload", {}))
         }
     }
+
+class GoogleDocCreateRequest(BaseModel):
+    title: str = "ItEnAi CRM Документ"
+    text: str = ""
+
+
+@app.post("/api/google/docs/create")
+async def google_docs_create(req: GoogleDocCreateRequest):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        create_res = await client.post(
+            "https://docs.googleapis.com/v1/documents",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "title": req.title
+            }
+        )
+
+    if create_res.status_code not in [200, 201]:
+        return {
+            "success": False,
+            "error": "Не вдалося створити Google Doc",
+            "details": create_res.json()
+        }
+
+    doc = create_res.json()
+    document_id = doc.get("documentId")
+
+    if req.text:
+        async with httpx.AsyncClient(timeout=30) as client:
+            text_res = await client.post(
+                f"https://docs.googleapis.com/v1/documents/{document_id}:batchUpdate",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "requests": [
+                        {
+                            "insertText": {
+                                "location": {
+                                    "index": 1
+                                },
+                                "text": req.text
+                            }
+                        }
+                    ]
+                }
+            )
+
+        if text_res.status_code not in [200, 201]:
+            return {
+                "success": False,
+                "error": "Документ створено, але текст не вдалося вставити",
+                "documentUrl": f"https://docs.google.com/document/d/{document_id}/edit",
+                "details": text_res.json()
+            }
+
+    return {
+        "success": True,
+        "documentId": document_id,
+        "title": req.title,
+        "documentUrl": f"https://docs.google.com/document/d/{document_id}/edit"
+    }
