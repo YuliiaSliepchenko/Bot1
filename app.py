@@ -872,3 +872,62 @@ async def google_sheets_create(req: SheetCreateRequest):
         "spreadsheetUrl": sheet.get("spreadsheetUrl"),
         "title": req.title
     }
+
+
+class CalendarCreateRequest(BaseModel):
+    summary: str
+    description: str = ""
+    start: str
+    end: str
+    location: str = ""
+
+
+@app.post("/api/google/calendar/create")
+async def google_calendar_create(req: CalendarCreateRequest):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    payload = {
+        "summary": req.summary,
+        "description": req.description,
+        "location": req.location,
+        "start": {
+            "dateTime": req.start,
+            "timeZone": "Europe/Kyiv"
+        },
+        "end": {
+            "dateTime": req.end,
+            "timeZone": "Europe/Kyiv"
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.post(
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            json=payload
+        )
+
+    if res.status_code not in [200, 201]:
+        return {
+            "success": False,
+            "error": "Не вдалося створити подію Google Calendar",
+            "details": res.json()
+        }
+
+    event = res.json()
+
+    return {
+        "success": True,
+        "message": "Подію створено в Google Calendar",
+        "event": {
+            "id": event.get("id"),
+            "summary": event.get("summary"),
+            "htmlLink": event.get("htmlLink"),
+            "start": event.get("start"),
+            "end": event.get("end")
+        }
+    }
