@@ -705,20 +705,23 @@ async def hub_gemini(req: HubGeminiRequest):
 
 
 @app.get("/api/google/drive/files")
-async def google_drive_files(type: str = "workspace", page_size: int = 50):
+async def google_drive_files(type: str = "workspace", page_size: int = 50, search: str = ""):
     auth = await get_valid_google_access_token()
     access_token = auth["access_token"]
 
     mime_map = {
         "sheets": "application/vnd.google-apps.spreadsheet",
         "docs": "application/vnd.google-apps.document",
-        "slides": "application/vnd.google-apps.presentation"
+        "slides": "application/vnd.google-apps.presentation",
+        "folders": "application/vnd.google-apps.folder",
+        "pdf": "application/pdf"
     }
 
     query_parts = ["trashed = false"]
 
     if type in mime_map:
         query_parts.append(f"mimeType = '{mime_map[type]}'")
+
     elif type == "workspace":
         query_parts.append(
             "("
@@ -727,6 +730,19 @@ async def google_drive_files(type: str = "workspace", page_size: int = 50):
             "or mimeType = 'application/vnd.google-apps.presentation'"
             ")"
         )
+
+    elif type == "images":
+        query_parts.append("mimeType contains 'image/'")
+
+    elif type == "all":
+        pass
+
+    else:
+        pass
+
+    if search:
+        safe_search = search.replace("'", "\\'")
+        query_parts.append(f"name contains '{safe_search}'")
 
     async with httpx.AsyncClient(timeout=30) as client:
         res = await client.get(
@@ -738,7 +754,7 @@ async def google_drive_files(type: str = "workspace", page_size: int = 50):
                 "q": " and ".join(query_parts),
                 "pageSize": max(1, min(page_size, 100)),
                 "orderBy": "modifiedTime desc",
-                "fields": "files(id,name,mimeType,webViewLink,createdTime,modifiedTime)"
+                "fields": "files(id,name,mimeType,webViewLink,webContentLink,iconLink,createdTime,modifiedTime,size)"
             }
         )
 
@@ -749,10 +765,13 @@ async def google_drive_files(type: str = "workspace", page_size: int = 50):
             "details": res.json()
         }
 
+    files = res.json().get("files", [])
+
     return {
         "success": True,
         "email": auth["email"],
-        "files": res.json().get("files", [])
+        "type": type,
+        "files": files
     }
 
 
