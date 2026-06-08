@@ -29,8 +29,7 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/presentations",
-    "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/drive.metadata.readonly",
+    "https://www.googleapis.com/auth/drive",
 ]
 
 app.add_middleware(
@@ -1161,3 +1160,180 @@ async def google_slides_export_pptx(presentation_id: str):
             "Content-Disposition": f'attachment; filename="itenai-presentation-{presentation_id}.pptx"'
         }
     )
+
+def safe_download_filename(name: str, fallback: str = "itenai-file"):
+    raw = str(name or "").strip()
+
+    safe = "".join(
+        ch for ch in raw
+        if ch.isascii() and (ch.isalnum() or ch in ["-", "_", ".", " "])
+    ).strip()
+
+    safe = safe.replace(" ", "-")
+
+    if not safe:
+        safe = fallback
+
+    return safe[:90]
+
+
+GOOGLE_EXPORT_FORMATS = {
+    "docx": {
+        "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "ext": "docx",
+        "label": "Word"
+    },
+    "xlsx": {
+        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ext": "xlsx",
+        "label": "Excel"
+    },
+    "pptx": {
+        "mime": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "ext": "pptx",
+        "label": "PowerPoint"
+    },
+    "pdf": {
+        "mime": "application/pdf",
+        "ext": "pdf",
+        "label": "PDF"
+    }
+}
+
+
+@app.get("/api/google/drive/export/{file_id}")
+async def google_drive_export(file_id: str, format: str = "pdf", name: str = "itenai-file"):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    export_info = GOOGLE_EXPORT_FORMATS.get(format)
+
+    if not export_info:
+        return {
+            "success": False,
+            "error": "Невідомий формат експорту",
+            "allowed": list(GOOGLE_EXPORT_FORMATS.keys())
+        }
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        res = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}/export",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            params={
+                "mimeType": export_info["mime"]
+            }
+        )
+
+    if res.status_code != 200:
+        return {
+            "success": False,
+            "error": f"Не вдалося експортувати файл у {export_info['label']}",
+            "details": res.text
+        }
+
+    filename = safe_download_filename(name, f"itenai-{file_id}")
+
+    return Response(
+        content=res.content,
+        media_type=export_info["mime"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}.{export_info["ext"]}"'
+        }
+    )
+
+
+@app.get("/api/google/drive/download/{file_id}")
+async def google_drive_download(file_id: str):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        meta_res = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            params={
+                "fields": "id,name,mimeType"
+            }
+        )
+
+        if meta_res.status_code != 200:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати дані файлу",
+                "details": meta_res.text
+            }
+
+        meta = meta_res.json()
+        mime_type = meta.get("mimeType", "application/octet-stream")
+        name = meta.get("name", f"itenai-{file_id}")
+
+        if mime_type.startswith("application/vnd.google-apps."):
+            return {
+                "success": False,
+                "error": "Це Google Workspace файл. Для нього треба використовувати export, а не download."
+            }
+
+        file_res = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            },
+            params={
+                "alt": "media"
+            }
+        )
+
+    if file_res.status_code != 200:
+        return {
+            "success": False,
+            "error": "Не вдалося скачати файл з Google Drive",
+            "details": file_res.text
+        }
+
+    filename = safe_download_filename(name, f"itenai-{file_id}")
+
+    return Response(
+        content=file_res.content,
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+
+@app.delete("/api/google/drive/files/{file_id}")
+async def google_drive_file_delete(file_id: str):
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.patch(
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            },
+            params={
+                "fields": "id,name,trashed"
+            },
+            json={
+                "trashed": True
+            }
+        )
+
+    if res.status_code != 200:
+        return {
+            "success": False,
+            "error": "Не вдалося перемістити файл у кошик Google Drive",
+            "details": res.text
+        }
+
+    return {
+        "success": True,
+        "message": "Файл переміщено в кошик Google Drive",
+        "file": res.json()
+    }
