@@ -58,8 +58,10 @@ META_GRAPH_URL = f"https://graph.facebook.com/{META_GRAPH_VERSION}"
 META_SCOPES = [
     "public_profile",
     "email",
+    "business_management",
     "pages_show_list",
-    "pages_read_engagement"
+    "pages_read_engagement",
+    "ads_read"
 ]
 
 app.add_middleware(
@@ -1575,4 +1577,91 @@ async def meta_webhook_receive(payload: dict):
 
     return {
         "success": True
+    }
+
+@app.get("/api/meta/debug")
+async def meta_debug():
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        permissions_res = await client.get(
+            f"{META_GRAPH_URL}/me/permissions",
+            params={
+                "access_token": access_token
+            }
+        )
+
+        me_res = await client.get(
+            f"{META_GRAPH_URL}/me",
+            params={
+                "fields": "id,name,email",
+                "access_token": access_token
+            }
+        )
+
+        accounts_res = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": "id,name,category,tasks",
+                "limit": 100,
+                "access_token": access_token
+            }
+        )
+
+        businesses_res = await client.get(
+            f"{META_GRAPH_URL}/me/businesses",
+            params={
+                "fields": "id,name,verification_status",
+                "limit": 100,
+                "access_token": access_token
+            }
+        )
+
+        businesses_data = businesses_res.json()
+        businesses = businesses_data.get("data", [])
+
+        business_pages = []
+
+        for business in businesses:
+            business_id = business.get("id")
+
+            owned_pages_res = await client.get(
+                f"{META_GRAPH_URL}/{business_id}/owned_pages",
+                params={
+                    "fields": "id,name,category,access_token",
+                    "limit": 100,
+                    "access_token": access_token
+                }
+            )
+
+            client_pages_res = await client.get(
+                f"{META_GRAPH_URL}/{business_id}/client_pages",
+                params={
+                    "fields": "id,name,category,access_token",
+                    "limit": 100,
+                    "access_token": access_token
+                }
+            )
+
+            business_pages.append({
+                "business": business,
+                "owned_pages": owned_pages_res.json(),
+                "client_pages": client_pages_res.json()
+            })
+
+    return {
+        "success": True,
+        "me": me_res.json(),
+        "permissions": permissions_res.json(),
+        "me_accounts": accounts_res.json(),
+        "businesses": businesses_data,
+        "business_pages": business_pages
     }
