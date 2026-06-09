@@ -59,9 +59,11 @@ META_SCOPES = [
     "public_profile",
     "email",
     "business_management",
+    "ads_read",
+    "ads_management",
     "pages_show_list",
     "pages_read_engagement",
-    "ads_read"
+    "pages_manage_ads"
 ]
 
 app.add_middleware(
