@@ -1397,7 +1397,8 @@ async def meta_login():
         "client_id": META_APP_ID,
         "redirect_uri": META_REDIRECT_URI,
         "scope": ",".join(META_SCOPES),
-        "response_type": "code"
+        "response_type": "code",
+        "auth_type": "rerequest"
     }
 
     login_url = f"https://www.facebook.com/{META_GRAPH_VERSION}/dialog/oauth?{urlencode(params)}"
@@ -1558,6 +1559,108 @@ async def meta_pages():
     return {
         "success": True,
         "pages": get_meta_pages()
+    }
+
+@app.get("/api/meta/adaccounts")
+async def meta_adaccounts():
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "accounts": []
+        }
+
+    access_token = tokens["access_token"]
+    all_accounts = []
+    raw_debug = {}
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        # 1. Рекламні кабінети, доступні напряму користувачу
+        me_adaccounts_res = await client.get(
+            f"{META_GRAPH_URL}/me/adaccounts",
+            params={
+                "fields": "id,name,account_id,currency,timezone_name,account_status,business",
+                "limit": 100,
+                "access_token": access_token
+            }
+        )
+
+        me_adaccounts_data = me_adaccounts_res.json()
+        raw_debug["me_adaccounts"] = me_adaccounts_data
+
+        if "data" in me_adaccounts_data:
+            all_accounts.extend(me_adaccounts_data["data"])
+
+        # 2. Бізнеси користувача
+        businesses_res = await client.get(
+            f"{META_GRAPH_URL}/me/businesses",
+            params={
+                "fields": "id,name,verification_status",
+                "limit": 100,
+                "access_token": access_token
+            }
+        )
+
+        businesses_data = businesses_res.json()
+        raw_debug["businesses"] = businesses_data
+
+        businesses = businesses_data.get("data", [])
+
+        # 3. Рекламні кабінети всередині кожного бізнесу
+        for business in businesses:
+            business_id = business.get("id")
+
+            if not business_id:
+                continue
+
+            owned_res = await client.get(
+                f"{META_GRAPH_URL}/{business_id}/owned_ad_accounts",
+                params={
+                    "fields": "id,name,account_id,currency,timezone_name,account_status,business",
+                    "limit": 100,
+                    "access_token": access_token
+                }
+            )
+
+            client_res = await client.get(
+                f"{META_GRAPH_URL}/{business_id}/client_ad_accounts",
+                params={
+                    "fields": "id,name,account_id,currency,timezone_name,account_status,business",
+                    "limit": 100,
+                    "access_token": access_token
+                }
+            )
+
+            owned_data = owned_res.json()
+            client_data = client_res.json()
+
+            raw_debug[f"business_{business_id}_owned_ad_accounts"] = owned_data
+            raw_debug[f"business_{business_id}_client_ad_accounts"] = client_data
+
+            if "data" in owned_data:
+                all_accounts.extend(owned_data["data"])
+
+            if "data" in client_data:
+                all_accounts.extend(client_data["data"])
+
+    # Прибираємо дублікати
+    unique_accounts = []
+    seen = set()
+
+    for account in all_accounts:
+        account_id = account.get("id")
+
+        if account_id and account_id not in seen:
+            seen.add(account_id)
+            unique_accounts.append(account)
+
+    return {
+        "success": True,
+        "count": len(unique_accounts),
+        "accounts": unique_accounts,
+        "debug": raw_debug
     }
 
 
