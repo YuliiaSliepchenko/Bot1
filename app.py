@@ -56,11 +56,7 @@ META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v25.0")
 META_GRAPH_URL = f"https://graph.facebook.com/{META_GRAPH_VERSION}"
 
 META_SCOPES = [
-    "email",
-    "public_profile",
-    "pages_show_list",
-    "pages_read_engagement",
-    "pages_manage_metadata"
+    "public_profile"
 ]
 
 app.add_middleware(
