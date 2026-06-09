@@ -2,13 +2,25 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
+import time
 import httpx
 import base64
 from fastapi.responses import RedirectResponse, Response
 from urllib.parse import urlencode
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from db import init_db, save_lead, save_google_tokens, get_google_tokens, delete_google_tokens
+from db import (
+    init_db,
+    save_lead,
+    save_google_tokens,
+    get_google_tokens,
+    delete_google_tokens,
+    save_meta_tokens,
+    get_meta_tokens,
+    delete_meta_tokens,
+    save_meta_pages,
+    get_meta_pages
+)
 
 load_dotenv()
 
@@ -30,6 +42,25 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/drive",
+]
+
+META_APP_ID = os.getenv("META_APP_ID", "")
+META_APP_SECRET = os.getenv("META_APP_SECRET", "")
+META_REDIRECT_URI = os.getenv(
+    "META_REDIRECT_URI",
+    "https://sitechat-production.up.railway.app/api/meta/callback"
+)
+META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "itenai_meta_verify_2026")
+
+META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v25.0")
+META_GRAPH_URL = f"https://graph.facebook.com/{META_GRAPH_VERSION}"
+
+META_SCOPES = [
+    "email",
+    "public_profile",
+    "pages_show_list",
+    "pages_read_engagement",
+    "pages_manage_metadata"
 ]
 
 app.add_middleware(
@@ -1336,4 +1367,213 @@ async def google_drive_file_delete(file_id: str):
         "success": True,
         "message": "Файл переміщено в кошик Google Drive",
         "file": res.json()
+    }
+
+@app.get("/api/meta/status")
+async def meta_status():
+    tokens = get_meta_tokens()
+
+    return {
+        "configured": bool(META_APP_ID and META_APP_SECRET and META_REDIRECT_URI),
+        "connected": bool(tokens),
+        "name": tokens.get("name") if tokens else None,
+        "email": tokens.get("email") if tokens else None,
+        "facebook_user_id": tokens.get("facebook_user_id") if tokens else None
+    }
+
+
+@app.get("/api/meta/login")
+async def meta_login():
+    if not META_APP_ID or not META_APP_SECRET or not META_REDIRECT_URI:
+        return {
+            "success": False,
+            "error": "Meta variables не налаштовані в Railway."
+        }
+
+    params = {
+        "client_id": META_APP_ID,
+        "redirect_uri": META_REDIRECT_URI,
+        "scope": ",".join(META_SCOPES),
+        "response_type": "code"
+    }
+
+    login_url = f"https://www.facebook.com/{META_GRAPH_VERSION}/dialog/oauth?{urlencode(params)}"
+
+    return RedirectResponse(login_url)
+
+
+@app.get("/api/meta/callback")
+async def meta_callback(code: str = None, error: str = None, error_description: str = None):
+    if error:
+        redirect_url = CRM_URL + ("&" if "?" in CRM_URL else "?") + urlencode({
+            "page": "integrations",
+            "meta": "error",
+            "message": error_description or error
+        })
+        return RedirectResponse(redirect_url)
+
+    if not code:
+        return {
+            "success": False,
+            "error": "Meta не повернула code."
+        }
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        token_res = await client.get(
+            f"{META_GRAPH_URL}/oauth/access_token",
+            params={
+                "client_id": META_APP_ID,
+                "client_secret": META_APP_SECRET,
+                "redirect_uri": META_REDIRECT_URI,
+                "code": code
+            }
+        )
+
+        token_data = token_res.json()
+        access_token = token_data.get("access_token")
+
+        if not access_token:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Meta access_token.",
+                "details": token_data
+            }
+
+        long_token_res = await client.get(
+            f"{META_GRAPH_URL}/oauth/access_token",
+            params={
+                "grant_type": "fb_exchange_token",
+                "client_id": META_APP_ID,
+                "client_secret": META_APP_SECRET,
+                "fb_exchange_token": access_token
+            }
+        )
+
+        long_token_data = long_token_res.json()
+
+        if long_token_data.get("access_token"):
+            access_token = long_token_data.get("access_token")
+            expires_in = long_token_data.get("expires_in")
+            token_type = long_token_data.get("token_type")
+        else:
+            expires_in = token_data.get("expires_in")
+            token_type = token_data.get("token_type")
+
+        expires_at = int(time.time()) + int(expires_in or 0) if expires_in else None
+
+        user_res = await client.get(
+            f"{META_GRAPH_URL}/me",
+            params={
+                "fields": "id,name,email",
+                "access_token": access_token
+            }
+        )
+
+        user_data = user_res.json()
+
+        facebook_user_id = user_data.get("id")
+        name = user_data.get("name", "Meta User")
+        email = user_data.get("email", "")
+
+        save_meta_tokens(
+            facebook_user_id=facebook_user_id,
+            name=name,
+            email=email,
+            access_token=access_token,
+            token_type=token_type,
+            expires_at=expires_at
+        )
+
+        pages_res = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": "id,name,category,access_token,tasks",
+                "limit": 100,
+                "access_token": access_token
+            }
+        )
+
+        pages_data = pages_res.json()
+        pages = pages_data.get("data", [])
+
+        save_meta_pages(pages)
+
+    redirect_url = CRM_URL + ("&" if "?" in CRM_URL else "?") + urlencode({
+        "page": "integrations",
+        "meta": "connected",
+        "open": "metahub"
+    })
+
+    return RedirectResponse(redirect_url)
+
+
+@app.post("/api/meta/disconnect")
+async def meta_disconnect():
+    delete_meta_tokens()
+
+    return {
+        "success": True,
+        "message": "Meta акаунт відключено."
+    }
+
+
+@app.get("/api/meta/pages")
+async def meta_pages():
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "pages": []
+        }
+
+    access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        pages_res = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": "id,name,category,access_token,tasks",
+                "limit": 100,
+                "access_token": access_token
+            }
+        )
+
+    pages_data = pages_res.json()
+
+    if "error" in pages_data:
+        return {
+            "success": False,
+            "error": "Не вдалося отримати Facebook Pages.",
+            "details": pages_data
+        }
+
+    pages = pages_data.get("data", [])
+    save_meta_pages(pages)
+
+    return {
+        "success": True,
+        "pages": get_meta_pages()
+    }
+
+
+@app.get("/api/meta/webhook")
+async def meta_webhook_verify(
+    hub_mode: str = None,
+    hub_challenge: str = None,
+    hub_verify_token: str = None
+):
+    if hub_mode == "subscribe" and hub_verify_token == META_VERIFY_TOKEN:
+        return Response(content=hub_challenge or "", media_type="text/plain")
+
+    raise HTTPException(status_code=403, detail="Meta webhook verification failed")
+
+
+@app.post("/api/meta/webhook")
+async def meta_webhook_receive(payload: dict):
+    print("META WEBHOOK PAYLOAD:", payload)
+
+    return {
+        "success": True
     }
