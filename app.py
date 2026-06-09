@@ -57,7 +57,9 @@ META_GRAPH_URL = f"https://graph.facebook.com/{META_GRAPH_VERSION}"
 
 META_SCOPES = [
     "public_profile",
-    "email"
+    "email",
+    "pages_show_list",
+    "pages_read_engagement"
 ]
 
 app.add_middleware(
