@@ -72,6 +72,22 @@ META_SCOPES = [
     "instagram_content_publish"
 ]
 
+class InstagramCommentReplyRequest(BaseModel):
+    instagram_id: str
+    comment_id: str
+    message: str
+
+
+class InstagramCommentVisibilityRequest(BaseModel):
+    instagram_id: str
+    comment_id: str
+    hide: bool
+
+
+class InstagramCommentDeleteRequest(BaseModel):
+    instagram_id: str
+    comment_id: str
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -2075,6 +2091,66 @@ async def meta_instagram_media_insights(
         "metric_errors": metric_errors
     }
 
+async def get_instagram_page_access_token(
+    client: httpx.AsyncClient,
+    instagram_id: str,
+    user_access_token: str
+):
+    """
+    Знаходить Facebook Page, до якої прив'язаний Instagram,
+    і повертає Page Access Token.
+    """
+
+    pages_response = await client.get(
+        f"{META_GRAPH_URL}/me/accounts",
+        params={
+            "fields": (
+                "id,"
+                "name,"
+                "access_token,"
+                "instagram_business_account"
+            ),
+            "limit": 100,
+            "access_token": user_access_token
+        }
+    )
+
+    pages_data = pages_response.json()
+
+    if "error" in pages_data:
+        return None, None, pages_data
+
+    for page in pages_data.get("data", []):
+        connected_instagram = (
+            page.get("instagram_business_account") or {}
+        )
+
+        if str(connected_instagram.get("id")) != str(instagram_id):
+            continue
+
+        page_access_token = (
+            page.get("access_token")
+            or user_access_token
+        )
+
+        facebook_page = {
+            "id": page.get("id"),
+            "name": page.get("name")
+        }
+
+        return page_access_token, facebook_page, None
+
+    return (
+        None,
+        None,
+        {
+            "message": (
+                "Не знайдено Facebook Page, "
+                "прив’язану до цього Instagram."
+            )
+        }
+    )
+
 @app.get("/api/meta/instagram/comments")
 async def meta_instagram_comments(
     instagram_id: str,
@@ -2202,6 +2278,252 @@ async def meta_instagram_comments(
         "count": len(comments),
         "comments": comments,
         "paging": comments_data.get("paging", {})
+    }
+
+@app.post("/api/meta/instagram/comments/reply")
+async def meta_instagram_comment_reply(
+    payload: InstagramCommentReplyRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    instagram_id = payload.instagram_id.strip()
+    comment_id = payload.comment_id.strip()
+    message = payload.message.strip()
+
+    if not instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    if not comment_id:
+        return {
+            "success": False,
+            "error": "Не передано comment_id."
+        }
+
+    if not message:
+        return {
+            "success": False,
+            "error": "Текст відповіді порожній."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_instagram_page_access_token(
+            client=client,
+            instagram_id=instagram_id,
+            user_access_token=user_access_token
+        )
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати токен Facebook Page.",
+                "details": token_error
+            }
+
+        response = await client.post(
+            f"{META_GRAPH_URL}/{comment_id}/replies",
+            data={
+                "message": message,
+                "access_token": page_access_token
+            }
+        )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "raw": response.text
+        }
+
+    if response.status_code >= 400 or "error" in data:
+        return {
+            "success": False,
+            "error": "Не вдалося відповісти на коментар.",
+            "details": data
+        }
+
+    return {
+        "success": True,
+        "message": "Відповідь опублікована.",
+        "reply_id": data.get("id"),
+        "instagram_id": instagram_id,
+        "comment_id": comment_id,
+        "facebook_page": facebook_page,
+        "result": data
+    }
+
+@app.post("/api/meta/instagram/comments/visibility")
+async def meta_instagram_comment_visibility(
+    payload: InstagramCommentVisibilityRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    instagram_id = payload.instagram_id.strip()
+    comment_id = payload.comment_id.strip()
+
+    if not instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    if not comment_id:
+        return {
+            "success": False,
+            "error": "Не передано comment_id."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_instagram_page_access_token(
+            client=client,
+            instagram_id=instagram_id,
+            user_access_token=user_access_token
+        )
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати токен Facebook Page.",
+                "details": token_error
+            }
+
+        response = await client.post(
+            f"{META_GRAPH_URL}/{comment_id}",
+            data={
+                "hide": str(payload.hide).lower(),
+                "access_token": page_access_token
+            }
+        )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "raw": response.text
+        }
+
+    if response.status_code >= 400 or "error" in data:
+        return {
+            "success": False,
+            "error": "Не вдалося змінити видимість коментаря.",
+            "details": data
+        }
+
+    return {
+        "success": True,
+        "hidden": payload.hide,
+        "message": (
+            "Коментар приховано."
+            if payload.hide
+            else "Коментар знову показується."
+        ),
+        "instagram_id": instagram_id,
+        "comment_id": comment_id,
+        "facebook_page": facebook_page,
+        "result": data
+    }
+
+@app.delete("/api/meta/instagram/comments")
+async def meta_instagram_comment_delete(
+    payload: InstagramCommentDeleteRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    instagram_id = payload.instagram_id.strip()
+    comment_id = payload.comment_id.strip()
+
+    if not instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    if not comment_id:
+        return {
+            "success": False,
+            "error": "Не передано comment_id."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_instagram_page_access_token(
+            client=client,
+            instagram_id=instagram_id,
+            user_access_token=user_access_token
+        )
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати токен Facebook Page.",
+                "details": token_error
+            }
+
+        response = await client.delete(
+            f"{META_GRAPH_URL}/{comment_id}",
+            params={
+                "access_token": page_access_token
+            }
+        )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "raw": response.text
+        }
+
+    if response.status_code >= 400 or "error" in data:
+        return {
+            "success": False,
+            "error": "Не вдалося видалити коментар.",
+            "details": data
+        }
+
+    return {
+        "success": True,
+        "message": "Коментар видалено.",
+        "instagram_id": instagram_id,
+        "comment_id": comment_id,
+        "facebook_page": facebook_page,
+        "result": data
     }
 
 @app.get("/api/meta/campaigns")
