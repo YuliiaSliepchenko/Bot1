@@ -1790,6 +1790,138 @@ async def meta_instagram_accounts():
         "accounts": instagram_accounts
     }
 
+@app.get("/api/meta/instagram/media")
+async def meta_instagram_media(
+    instagram_id: str,
+    limit: int = 25,
+    after: str = ""
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "media": [],
+            "count": 0
+        }
+
+    if not instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id.",
+            "media": [],
+            "count": 0
+        }
+
+    user_access_token = tokens["access_token"]
+    page_access_token = None
+    facebook_page = None
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        # 1. Отримуємо Facebook Pages і шукаємо сторінку,
+        # до якої прив'язаний потрібний Instagram.
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "access_token,"
+                    "instagram_business_account"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data,
+                "media": [],
+                "count": 0
+            }
+
+        for page in pages_data.get("data", []):
+            connected_instagram = page.get(
+                "instagram_business_account"
+            ) or {}
+
+            if str(connected_instagram.get("id")) == str(instagram_id):
+                page_access_token = (
+                    page.get("access_token")
+                    or user_access_token
+                )
+
+                facebook_page = {
+                    "id": page.get("id"),
+                    "name": page.get("name")
+                }
+
+                break
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Instagram не знайдений серед акаунтів, "
+                    "прив’язаних до доступних Facebook Pages."
+                ),
+                "media": [],
+                "count": 0
+            }
+
+        # 2. Отримуємо публікації Instagram.
+        params = {
+            "fields": (
+                "id,"
+                "caption,"
+                "media_type,"
+                "media_product_type,"
+                "media_url,"
+                "thumbnail_url,"
+                "permalink,"
+                "timestamp,"
+                "username"
+            ),
+            "limit": max(1, min(limit, 100)),
+            "access_token": page_access_token
+        }
+
+        if after:
+            params["after"] = after
+
+        media_response = await client.get(
+            f"{META_GRAPH_URL}/{instagram_id}/media",
+            params=params
+        )
+
+    media_data = media_response.json()
+
+    if "error" in media_data:
+        return {
+            "success": False,
+            "error": "Не вдалося отримати публікації Instagram.",
+            "details": media_data,
+            "media": [],
+            "count": 0
+        }
+
+    media_items = media_data.get("data", [])
+
+    return {
+        "success": True,
+        "instagram_id": instagram_id,
+        "facebook_page": facebook_page,
+        "count": len(media_items),
+        "media": media_items,
+        "paging": media_data.get("paging", {})
+    }
+
 @app.get("/api/meta/campaigns")
 async def meta_campaigns(ad_account_id: str, limit: int = 50):
     tokens = get_meta_tokens()
