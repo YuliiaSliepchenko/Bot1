@@ -2075,6 +2075,135 @@ async def meta_instagram_media_insights(
         "metric_errors": metric_errors
     }
 
+@app.get("/api/meta/instagram/comments")
+async def meta_instagram_comments(
+    instagram_id: str,
+    media_id: str,
+    limit: int = 50,
+    after: str = ""
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "comments": [],
+            "count": 0
+        }
+
+    if not instagram_id or not media_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id або media_id.",
+            "comments": [],
+            "count": 0
+        }
+
+    user_access_token = tokens["access_token"]
+    page_access_token = None
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        # Знаходимо Facebook Page, до якої прив’язаний Instagram
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "access_token,"
+                    "instagram_business_account"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data,
+                "comments": [],
+                "count": 0
+            }
+
+        for page in pages_data.get("data", []):
+            connected_instagram = (
+                page.get("instagram_business_account") or {}
+            )
+
+            if str(connected_instagram.get("id")) == str(instagram_id):
+                page_access_token = (
+                    page.get("access_token")
+                    or user_access_token
+                )
+                break
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Не знайдено Facebook Page, "
+                    "прив’язану до цього Instagram."
+                ),
+                "comments": [],
+                "count": 0
+            }
+
+        params = {
+            "fields": (
+                "id,"
+                "text,"
+                "username,"
+                "timestamp,"
+                "like_count,"
+                "hidden,"
+                "replies.limit(20){"
+                    "id,"
+                    "text,"
+                    "username,"
+                    "timestamp,"
+                    "like_count,"
+                    "hidden"
+                "}"
+            ),
+            "limit": max(1, min(limit, 100)),
+            "access_token": page_access_token
+        }
+
+        if after:
+            params["after"] = after
+
+        comments_response = await client.get(
+            f"{META_GRAPH_URL}/{media_id}/comments",
+            params=params
+        )
+
+    comments_data = comments_response.json()
+
+    if "error" in comments_data:
+        return {
+            "success": False,
+            "error": "Не вдалося отримати коментарі Instagram.",
+            "details": comments_data,
+            "comments": [],
+            "count": 0
+        }
+
+    comments = comments_data.get("data", [])
+
+    return {
+        "success": True,
+        "instagram_id": instagram_id,
+        "media_id": media_id,
+        "count": len(comments),
+        "comments": comments,
+        "paging": comments_data.get("paging", {})
+    }
+
 @app.get("/api/meta/campaigns")
 async def meta_campaigns(ad_account_id: str, limit: int = 50):
     tokens = get_meta_tokens()
