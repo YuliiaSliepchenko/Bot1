@@ -1663,6 +1663,130 @@ async def meta_adaccounts():
         "debug": raw_debug
     }
 
+@app.get("/api/meta/campaigns")
+async def meta_campaigns(ad_account_id: str, limit: int = 50):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "campaigns": []
+        }
+
+    if not ad_account_id:
+        return {
+            "success": False,
+            "error": "Не передано ad_account_id.",
+            "campaigns": []
+        }
+
+    access_token = tokens["access_token"]
+
+    # Meta очікує формат act_123456789
+    account_node = ad_account_id if ad_account_id.startswith("act_") else f"act_{ad_account_id}"
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        res = await client.get(
+            f"{META_GRAPH_URL}/{account_node}/campaigns",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "status,"
+                    "effective_status,"
+                    "objective,"
+                    "buying_type,"
+                    "daily_budget,"
+                    "lifetime_budget,"
+                    "start_time,"
+                    "stop_time,"
+                    "created_time,"
+                    "updated_time"
+                ),
+                "limit": max(1, min(limit, 100)),
+                "access_token": access_token
+            }
+        )
+
+    data = res.json()
+
+    if "error" in data:
+        return {
+            "success": False,
+            "error": "Не вдалося отримати кампанії Meta Ads.",
+            "details": data,
+            "campaigns": []
+        }
+
+    return {
+        "success": True,
+        "ad_account_id": account_node,
+        "count": len(data.get("data", [])),
+        "campaigns": data.get("data", []),
+        "paging": data.get("paging", {})
+    }
+
+@app.get("/api/meta/campaign/insights")
+async def meta_campaign_insights(campaign_id: str, date_preset: str = "last_30d"):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "insights": []
+        }
+
+    if not campaign_id:
+        return {
+            "success": False,
+            "error": "Не передано campaign_id.",
+            "insights": []
+        }
+
+    access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        res = await client.get(
+            f"{META_GRAPH_URL}/{campaign_id}/insights",
+            params={
+                "fields": (
+                    "campaign_id,"
+                    "campaign_name,"
+                    "spend,"
+                    "impressions,"
+                    "reach,"
+                    "clicks,"
+                    "cpc,"
+                    "cpm,"
+                    "ctr,"
+                    "frequency,"
+                    "actions"
+                ),
+                "date_preset": date_preset,
+                "access_token": access_token
+            }
+        )
+
+    data = res.json()
+
+    if "error" in data:
+        return {
+            "success": False,
+            "error": "Не вдалося отримати статистику кампанії.",
+            "details": data,
+            "insights": []
+        }
+
+    return {
+        "success": True,
+        "campaign_id": campaign_id,
+        "date_preset": date_preset,
+        "insights": data.get("data", []),
+        "paging": data.get("paging", {})
+    }
+
 
 @app.get("/api/meta/webhook")
 async def meta_webhook_verify(
