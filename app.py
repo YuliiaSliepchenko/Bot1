@@ -1922,6 +1922,159 @@ async def meta_instagram_media(
         "paging": media_data.get("paging", {})
     }
 
+@app.get("/api/meta/instagram/media/insights")
+async def meta_instagram_media_insights(
+    instagram_id: str,
+    media_id: str
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    if not instagram_id or not media_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id або media_id."
+        }
+
+    user_access_token = tokens["access_token"]
+    page_access_token = None
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        # Знаходимо Facebook Page, до якої прив’язаний Instagram
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "access_token,"
+                    "instagram_business_account"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data
+            }
+
+        for page in pages_data.get("data", []):
+            connected_instagram = (
+                page.get("instagram_business_account") or {}
+            )
+
+            if str(connected_instagram.get("id")) == str(instagram_id):
+                page_access_token = (
+                    page.get("access_token")
+                    or user_access_token
+                )
+                break
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Не знайдено Facebook Page, "
+                    "прив’язану до цього Instagram."
+                )
+            }
+
+        # Основна інформація про публікацію
+        media_response = await client.get(
+            f"{META_GRAPH_URL}/{media_id}",
+            params={
+                "fields": (
+                    "id,"
+                    "caption,"
+                    "media_type,"
+                    "media_product_type,"
+                    "media_url,"
+                    "thumbnail_url,"
+                    "permalink,"
+                    "timestamp,"
+                    "like_count,"
+                    "comments_count"
+                ),
+                "access_token": page_access_token
+            }
+        )
+
+        media_data = media_response.json()
+
+        if "error" in media_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати дані публікації.",
+                "details": media_data
+            }
+
+        # Запитуємо метрики окремо:
+        # якщо конкретна метрика не підтримується типом поста,
+        # інші метрики все одно завантажаться
+        metric_names = [
+            "views",
+            "reach",
+            "saved",
+            "shares"
+        ]
+
+        metrics = {}
+        metric_errors = {}
+
+        for metric_name in metric_names:
+            metric_response = await client.get(
+                f"{META_GRAPH_URL}/{media_id}/insights",
+                params={
+                    "metric": metric_name,
+                    "access_token": page_access_token
+                }
+            )
+
+            metric_data = metric_response.json()
+
+            if "error" in metric_data:
+                metric_errors[metric_name] = metric_data["error"]
+                continue
+
+            metric_items = metric_data.get("data", [])
+
+            if not metric_items:
+                metrics[metric_name] = None
+                continue
+
+            metric_item = metric_items[0]
+            metric_value = None
+
+            values = metric_item.get("values")
+
+            if isinstance(values, list) and values:
+                metric_value = values[-1].get("value")
+            elif "total_value" in metric_item:
+                total_value = metric_item.get("total_value") or {}
+                metric_value = total_value.get("value")
+
+            metrics[metric_name] = metric_value
+
+    return {
+        "success": True,
+        "instagram_id": instagram_id,
+        "media_id": media_id,
+        "media": media_data,
+        "metrics": metrics,
+        "metric_errors": metric_errors
+    }
+
 @app.get("/api/meta/campaigns")
 async def meta_campaigns(ad_account_id: str, limit: int = 50):
     tokens = get_meta_tokens()
