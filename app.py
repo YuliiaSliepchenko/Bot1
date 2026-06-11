@@ -63,7 +63,13 @@ META_SCOPES = [
     "ads_management",
     "pages_show_list",
     "pages_read_engagement",
-    "pages_manage_ads"
+    "pages_manage_ads",
+
+    "instagram_basic",
+    "instagram_manage_comments",
+    "instagram_manage_insights",
+    "instagram_manage_messages",
+    "instagram_content_publish"
 ]
 
 app.add_middleware(
