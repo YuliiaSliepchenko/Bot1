@@ -1669,6 +1669,127 @@ async def meta_adaccounts():
         "debug": raw_debug
     }
 
+@app.get("/api/meta/instagram/accounts")
+async def meta_instagram_accounts():
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "accounts": [],
+            "count": 0
+        }
+
+    user_access_token = tokens["access_token"]
+    instagram_accounts = []
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        # 1. Отримуємо Facebook Pages, доступні користувачу
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": "id,name,access_token",
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data,
+                "accounts": [],
+                "count": 0
+            }
+
+        pages = pages_data.get("data", [])
+
+        # 2. Для кожної Facebook Page шукаємо прив'язаний Instagram
+        for page in pages:
+            page_id = page.get("id")
+            page_name = page.get("name")
+            page_access_token = (
+                page.get("access_token")
+                or user_access_token
+            )
+
+            if not page_id:
+                continue
+
+            connection_response = await client.get(
+                f"{META_GRAPH_URL}/{page_id}",
+                params={
+                    "fields": "instagram_business_account",
+                    "access_token": page_access_token
+                }
+            )
+
+            connection_data = connection_response.json()
+
+            instagram_connection = connection_data.get(
+                "instagram_business_account"
+            )
+
+            if not instagram_connection:
+                continue
+
+            instagram_id = instagram_connection.get("id")
+
+            if not instagram_id:
+                continue
+
+            # 3. Отримуємо дані Instagram-профілю
+            profile_response = await client.get(
+                f"{META_GRAPH_URL}/{instagram_id}",
+                params={
+                    "fields": (
+                        "id,"
+                        "username,"
+                        "name,"
+                        "profile_picture_url,"
+                        "followers_count,"
+                        "media_count"
+                    ),
+                    "access_token": page_access_token
+                }
+            )
+
+            profile_data = profile_response.json()
+
+            if "error" in profile_data:
+                instagram_accounts.append({
+                    "instagram_id": instagram_id,
+                    "facebook_page_id": page_id,
+                    "facebook_page_name": page_name,
+                    "profile_error": profile_data
+                })
+                continue
+
+            instagram_accounts.append({
+                "id": profile_data.get("id"),
+                "username": profile_data.get("username"),
+                "name": profile_data.get("name"),
+                "profile_picture_url": profile_data.get(
+                    "profile_picture_url"
+                ),
+                "followers_count": profile_data.get(
+                    "followers_count"
+                ),
+                "media_count": profile_data.get("media_count"),
+                "facebook_page_id": page_id,
+                "facebook_page_name": page_name
+            })
+
+    return {
+        "success": True,
+        "count": len(instagram_accounts),
+        "accounts": instagram_accounts
+    }
+
 @app.get("/api/meta/campaigns")
 async def meta_campaigns(ad_account_id: str, limit: int = 50):
     tokens = get_meta_tokens()
