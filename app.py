@@ -61,8 +61,12 @@ META_SCOPES = [
     "business_management",
     "ads_read",
     "ads_management",
+
     "pages_show_list",
     "pages_read_engagement",
+    "pages_read_user_content",
+    "pages_manage_engagement",
+    "read_insights",
     "pages_manage_ads",
 
     "instagram_basic",
