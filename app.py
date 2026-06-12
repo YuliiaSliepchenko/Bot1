@@ -1900,6 +1900,236 @@ async def meta_facebook_posts(
         "paging": posts_data.get("paging", {})
     }
 
+@app.get("/api/meta/facebook/post/insights")
+async def meta_facebook_post_insights(
+    page_id: str,
+    post_id: str
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    page_id = str(page_id or "").strip()
+    post_id = str(post_id or "").strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not post_id:
+        return {
+            "success": False,
+            "error": "Не передано post_id."
+        }
+
+    user_access_token = tokens["access_token"]
+    page_access_token = None
+    facebook_page = None
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        # 1. Знаходимо Facebook Page та Page Access Token
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "category,"
+                    "access_token,"
+                    "tasks"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data
+            }
+
+        for page in pages_data.get("data", []):
+            if str(page.get("id")) != page_id:
+                continue
+
+            page_access_token = (
+                page.get("access_token")
+                or user_access_token
+            )
+
+            facebook_page = {
+                "id": page.get("id"),
+                "name": page.get("name"),
+                "category": page.get("category"),
+                "tasks": page.get("tasks", [])
+            }
+
+            break
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Facebook Page не знайдено "
+                    "серед доступних сторінок."
+                )
+            }
+
+        # 2. Отримуємо дані та лічильники допису
+        post_response = await client.get(
+            f"{META_GRAPH_URL}/{post_id}",
+            params={
+                "fields": (
+                    "id,"
+                    "message,"
+                    "story,"
+                    "created_time,"
+                    "updated_time,"
+                    "permalink_url,"
+                    "full_picture,"
+                    "status_type,"
+                    "is_published,"
+                    "shares,"
+                    "reactions.limit(0).summary(true),"
+                    "comments.limit(0).summary(true)"
+                ),
+                "access_token": page_access_token
+            }
+        )
+
+        post_data = post_response.json()
+
+        if "error" in post_data:
+            return {
+                "success": False,
+                "error": (
+                    "Не вдалося отримати дані "
+                    "Facebook-допису."
+                ),
+                "details": post_data
+            }
+
+        # 3. Запитуємо всі доступні Insights цього допису
+        insights_response = await client.get(
+            f"{META_GRAPH_URL}/{post_id}/insights",
+            params={
+                "access_token": page_access_token
+            }
+        )
+
+        insights_data = insights_response.json()
+
+    reactions_summary = (
+        post_data.get("reactions", {})
+        .get("summary", {})
+    )
+
+    comments_summary = (
+        post_data.get("comments", {})
+        .get("summary", {})
+    )
+
+    shares_data = post_data.get("shares") or {}
+
+    normalized_insights = {}
+    available_metric_names = []
+    insights_error = None
+
+    if "error" in insights_data:
+        insights_error = insights_data.get("error")
+    else:
+        for metric_item in insights_data.get("data", []):
+            metric_name = metric_item.get("name")
+
+            if not metric_name:
+                continue
+
+            metric_value = None
+
+            total_value = metric_item.get("total_value")
+
+            if isinstance(total_value, dict):
+                metric_value = total_value.get("value")
+
+            if metric_value is None:
+                values = metric_item.get("values")
+
+                if isinstance(values, list) and values:
+                    metric_value = values[-1].get("value")
+
+            available_metric_names.append(metric_name)
+
+            normalized_insights[metric_name] = {
+                "value": metric_value,
+                "title": metric_item.get("title"),
+                "description": metric_item.get(
+                    "description"
+                ),
+                "period": metric_item.get("period"),
+                "raw_values": metric_item.get(
+                    "values",
+                    []
+                ),
+                "total_value": metric_item.get(
+                    "total_value"
+                )
+            }
+
+    return {
+        "success": True,
+        "facebook_page": facebook_page,
+        "post": {
+            "id": post_data.get("id"),
+            "message": post_data.get("message", ""),
+            "story": post_data.get("story", ""),
+            "created_time": post_data.get(
+                "created_time"
+            ),
+            "updated_time": post_data.get(
+                "updated_time"
+            ),
+            "permalink_url": post_data.get(
+                "permalink_url"
+            ),
+            "full_picture": post_data.get(
+                "full_picture"
+            ),
+            "status_type": post_data.get(
+                "status_type"
+            ),
+            "is_published": post_data.get(
+                "is_published"
+            ),
+            "shares_count": shares_data.get(
+                "count",
+                0
+            ),
+            "reactions_count": reactions_summary.get(
+                "total_count",
+                0
+            ),
+            "comments_count": comments_summary.get(
+                "total_count",
+                0
+            )
+        },
+        "available_metric_names": (
+            available_metric_names
+        ),
+        "insights": normalized_insights,
+        "insights_error": insights_error
+    }
+
 @app.get("/api/meta/adaccounts")
 async def meta_adaccounts():
     tokens = get_meta_tokens()
