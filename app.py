@@ -1985,9 +1985,10 @@ async def meta_facebook_post_insights(
                 )
             }
 
-        # 2. Отримуємо дані та лічильники допису
-        post_response = await client.get(
-            f"{META_GRAPH_URL}/{post_id}",
+                # 2. Шукаємо вибраний допис через published_posts.
+        # Це працює також для дописів, які є Facebook Reels.
+        posts_response = await client.get(
+            f"{META_GRAPH_URL}/{page_id}/published_posts",
             params={
                 "fields": (
                     "id,"
@@ -2001,22 +2002,47 @@ async def meta_facebook_post_insights(
                     "is_published,"
                     "shares,"
                     "reactions.limit(0).summary(true),"
-                    "comments.limit(0).summary(true)"
+                    "comments.limit(0).summary(true),"
+                    "attachments{"
+                        "media_type,"
+                        "media,"
+                        "target,"
+                        "title,"
+                        "url"
+                    "}"
                 ),
+                "limit": 100,
                 "access_token": page_access_token
             }
         )
 
-        post_data = post_response.json()
+        posts_data = posts_response.json()
 
-        if "error" in post_data:
+        if "error" in posts_data:
             return {
                 "success": False,
                 "error": (
-                    "Не вдалося отримати дані "
-                    "Facebook-допису."
+                    "Не вдалося отримати список "
+                    "Facebook-публікацій."
                 ),
-                "details": post_data
+                "details": posts_data
+            }
+
+        post_data = None
+
+        for post_item in posts_data.get("data", []):
+            if str(post_item.get("id")) == str(post_id):
+                post_data = post_item
+                break
+
+        if not post_data:
+            return {
+                "success": False,
+                "error": (
+                    "Публікацію не знайдено серед "
+                    "опублікованих дописів сторінки."
+                ),
+                "post_id": post_id
             }
 
         # 3. Запитуємо всі доступні Insights цього допису
@@ -2109,6 +2135,15 @@ async def meta_facebook_post_insights(
             ),
             "is_published": post_data.get(
                 "is_published"
+            ),
+            "is_reel": (
+                "/reel/" in str(
+                    post_data.get("permalink_url") or ""
+                )
+            ),
+            "attachments": (
+                post_data.get("attachments", {})
+                .get("data", [])
             ),
             "shares_count": shares_data.get(
                 "count",
