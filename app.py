@@ -7,7 +7,7 @@ import httpx
 import base64
 from fastapi.responses import RedirectResponse, Response
 from urllib.parse import urlencode
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from db import (
     init_db,
@@ -2150,6 +2150,261 @@ async def get_instagram_page_access_token(
             )
         }
     )
+
+def get_instagram_insights_date_range(date_preset: str):
+    now = datetime.now(timezone.utc)
+
+    allowed_presets = {
+        "last_7d",
+        "last_30d",
+        "this_month",
+        "last_month"
+    }
+
+    if date_preset not in allowed_presets:
+        date_preset = "last_30d"
+
+    if date_preset == "last_7d":
+        start = now - timedelta(days=7)
+        end = now
+
+    elif date_preset == "this_month":
+        start = datetime(
+            now.year,
+            now.month,
+            1,
+            tzinfo=timezone.utc
+        )
+        end = now
+
+    elif date_preset == "last_month":
+        current_month_start = datetime(
+            now.year,
+            now.month,
+            1,
+            tzinfo=timezone.utc
+        )
+
+        end = current_month_start - timedelta(seconds=1)
+
+        start = datetime(
+            end.year,
+            end.month,
+            1,
+            tzinfo=timezone.utc
+        )
+
+    else:
+        start = now - timedelta(days=30)
+        end = now
+
+    return {
+        "date_preset": date_preset,
+        "since": int(start.timestamp()),
+        "until": int(end.timestamp()),
+        "since_iso": start.isoformat(),
+        "until_iso": end.isoformat()
+    }
+
+
+def extract_instagram_insight_value(metric_item: dict):
+    total_value = metric_item.get("total_value")
+
+    if isinstance(total_value, dict):
+        return {
+            "value": total_value.get("value"),
+            "breakdowns": total_value.get(
+                "breakdowns",
+                []
+            )
+        }
+
+    values = metric_item.get("values")
+
+    if isinstance(values, list) and values:
+        latest_value = values[-1].get("value")
+
+        return {
+            "value": latest_value,
+            "breakdowns": []
+        }
+
+    return {
+        "value": None,
+        "breakdowns": []
+    }
+
+
+@app.get("/api/meta/instagram/account/insights")
+async def meta_instagram_account_insights(
+    instagram_id: str,
+    date_preset: str = "last_30d"
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    instagram_id = str(instagram_id or "").strip()
+
+    if not instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    date_range = get_instagram_insights_date_range(
+        date_preset
+    )
+
+    metric_names = [
+        "views",
+        "reach",
+        "accounts_engaged",
+        "total_interactions",
+        "profile_links_taps",
+        "follows_and_unfollows"
+    ]
+
+    metrics = {}
+    metric_details = {}
+    metric_errors = {}
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_instagram_page_access_token(
+            client=client,
+            instagram_id=instagram_id,
+            user_access_token=user_access_token
+        )
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Не вдалося отримати токен "
+                    "Facebook Page."
+                ),
+                "details": token_error
+            }
+
+        profile_response = await client.get(
+            f"{META_GRAPH_URL}/{instagram_id}",
+            params={
+                "fields": (
+                    "id,"
+                    "username,"
+                    "name,"
+                    "profile_picture_url,"
+                    "followers_count,"
+                    "media_count"
+                ),
+                "access_token": page_access_token
+            }
+        )
+
+        profile_data = profile_response.json()
+
+        if "error" in profile_data:
+            return {
+                "success": False,
+                "error": (
+                    "Не вдалося отримати "
+                    "Instagram-профіль."
+                ),
+                "details": profile_data
+            }
+
+        for metric_name in metric_names:
+            params = {
+                "metric": metric_name,
+                "period": "day",
+                "metric_type": "total_value",
+                "since": date_range["since"],
+                "until": date_range["until"],
+                "access_token": page_access_token
+            }
+
+            if metric_name == "follows_and_unfollows":
+                params["breakdown"] = "follow_type"
+
+            metric_response = await client.get(
+                f"{META_GRAPH_URL}/{instagram_id}/insights",
+                params=params
+            )
+
+            metric_data = metric_response.json()
+
+            if "error" in metric_data:
+                metrics[metric_name] = None
+                metric_errors[metric_name] = (
+                    metric_data.get("error")
+                )
+                continue
+
+            metric_items = metric_data.get("data", [])
+
+            if not metric_items:
+                metrics[metric_name] = None
+                metric_details[metric_name] = {
+                    "value": None,
+                    "breakdowns": []
+                }
+                continue
+
+            metric_item = metric_items[0]
+
+            extracted = extract_instagram_insight_value(
+                metric_item
+            )
+
+            metrics[metric_name] = extracted["value"]
+
+            metric_details[metric_name] = {
+                "id": metric_item.get("id"),
+                "name": metric_item.get("name"),
+                "title": metric_item.get("title"),
+                "description": metric_item.get(
+                    "description"
+                ),
+                "period": metric_item.get("period"),
+                "value": extracted["value"],
+                "breakdowns": extracted["breakdowns"]
+            }
+
+    return {
+        "success": True,
+        "instagram_id": instagram_id,
+        "facebook_page": facebook_page,
+        "profile": {
+            "id": profile_data.get("id"),
+            "username": profile_data.get("username"),
+            "name": profile_data.get("name"),
+            "profile_picture_url": profile_data.get(
+                "profile_picture_url"
+            ),
+            "followers_count": profile_data.get(
+                "followers_count"
+            ),
+            "media_count": profile_data.get(
+                "media_count"
+            )
+        },
+        "date_preset": date_range["date_preset"],
+        "since": date_range["since_iso"],
+        "until": date_range["until_iso"],
+        "metrics": metrics,
+        "metric_details": metric_details,
+        "metric_errors": metric_errors
+    }
 
 @app.get("/api/meta/instagram/comments")
 async def meta_instagram_comments(
