@@ -1583,6 +1583,192 @@ async def meta_pages():
         "pages": get_meta_pages()
     }
 
+@app.get("/api/meta/facebook/posts")
+async def meta_facebook_posts(
+    page_id: str,
+    limit: int = 25,
+    after: str = ""
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "posts": [],
+            "count": 0
+        }
+
+    page_id = str(page_id or "").strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id.",
+            "posts": [],
+            "count": 0
+        }
+
+    user_access_token = tokens["access_token"]
+    page_access_token = None
+    facebook_page = None
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        # 1. Отримуємо доступні Facebook Pages
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "category,"
+                    "access_token,"
+                    "tasks"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data,
+                "posts": [],
+                "count": 0
+            }
+
+        for page in pages_data.get("data", []):
+            if str(page.get("id")) != page_id:
+                continue
+
+            page_access_token = (
+                page.get("access_token")
+                or user_access_token
+            )
+
+            facebook_page = {
+                "id": page.get("id"),
+                "name": page.get("name"),
+                "category": page.get("category"),
+                "tasks": page.get("tasks", [])
+            }
+
+            break
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Facebook Page не знайдено "
+                    "серед доступних сторінок."
+                ),
+                "posts": [],
+                "count": 0
+            }
+
+        # 2. Отримуємо публікації, створені сторінкою
+        params = {
+            "fields": (
+                "id,"
+                "message,"
+                "story,"
+                "created_time,"
+                "updated_time,"
+                "permalink_url,"
+                "full_picture,"
+                "status_type,"
+                "is_published,"
+                "shares,"
+                "attachments{"
+                    "media_type,"
+                    "media,"
+                    "target,"
+                    "title,"
+                    "description,"
+                    "url,"
+                    "subattachments"
+                "},"
+                "reactions.limit(0).summary(true),"
+                "comments.limit(0).summary(true)"
+            ),
+            "limit": max(1, min(limit, 100)),
+            "access_token": page_access_token
+        }
+
+        if after:
+            params["after"] = after
+
+        posts_response = await client.get(
+            f"{META_GRAPH_URL}/{page_id}/published_posts",
+            params=params
+        )
+
+    posts_data = posts_response.json()
+
+    if "error" in posts_data:
+        return {
+            "success": False,
+            "error": (
+                "Не вдалося отримати публікації "
+                "Facebook Page."
+            ),
+            "details": posts_data,
+            "posts": [],
+            "count": 0
+        }
+
+    posts = []
+
+    for item in posts_data.get("data", []):
+        reactions_summary = (
+            item.get("reactions", {})
+            .get("summary", {})
+        )
+
+        comments_summary = (
+            item.get("comments", {})
+            .get("summary", {})
+        )
+
+        shares = item.get("shares") or {}
+
+        posts.append({
+            "id": item.get("id"),
+            "message": item.get("message", ""),
+            "story": item.get("story", ""),
+            "created_time": item.get("created_time"),
+            "updated_time": item.get("updated_time"),
+            "permalink_url": item.get("permalink_url"),
+            "full_picture": item.get("full_picture"),
+            "status_type": item.get("status_type"),
+            "is_published": item.get("is_published"),
+            "shares_count": shares.get("count", 0),
+            "reactions_count": reactions_summary.get(
+                "total_count",
+                0
+            ),
+            "comments_count": comments_summary.get(
+                "total_count",
+                0
+            ),
+            "attachments": (
+                item.get("attachments", {})
+                .get("data", [])
+            )
+        })
+
+    return {
+        "success": True,
+        "facebook_page": facebook_page,
+        "count": len(posts),
+        "posts": posts,
+        "paging": posts_data.get("paging", {})
+    }
+
 @app.get("/api/meta/adaccounts")
 async def meta_adaccounts():
     tokens = get_meta_tokens()
