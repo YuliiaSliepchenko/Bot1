@@ -1583,6 +1583,145 @@ async def meta_pages():
         "pages": get_meta_pages()
     }
 
+@app.get("/api/meta/facebook/posts-test")
+async def meta_facebook_posts_test(page_id: str):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    page_id = str(page_id or "").strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        # Отримуємо сторінку та її Page Access Token
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "access_token,"
+                    "tasks"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "stage": "me_accounts",
+                "details": pages_data
+            }
+
+        selected_page = None
+
+        for page in pages_data.get("data", []):
+            if str(page.get("id")) == page_id:
+                selected_page = page
+                break
+
+        if not selected_page:
+            return {
+                "success": False,
+                "error": "Сторінку не знайдено в /me/accounts."
+            }
+
+        page_access_token = selected_page.get(
+            "access_token"
+        )
+
+        results = {
+            "page": {
+                "id": selected_page.get("id"),
+                "name": selected_page.get("name"),
+                "tasks": selected_page.get("tasks", []),
+                "page_token_received": bool(page_access_token)
+            }
+        }
+
+        # Тест №1: мінімальний запит з Page Access Token
+        if page_access_token:
+            page_token_response = await client.get(
+                f"{META_GRAPH_URL}/{page_id}/published_posts",
+                params={
+                    "fields": (
+                        "id,"
+                        "message,"
+                        "created_time,"
+                        "permalink_url"
+                    ),
+                    "limit": 3,
+                    "access_token": page_access_token
+                }
+            )
+
+            try:
+                page_token_data = page_token_response.json()
+            except Exception:
+                page_token_data = {
+                    "raw": page_token_response.text
+                }
+
+            results["page_token_test"] = {
+                "status_code": page_token_response.status_code,
+                "success": (
+                    page_token_response.status_code < 400
+                    and "error" not in page_token_data
+                ),
+                "response": page_token_data
+            }
+
+        # Тест №2: той самий мінімальний запит з User Access Token
+        user_token_response = await client.get(
+            f"{META_GRAPH_URL}/{page_id}/published_posts",
+            params={
+                "fields": (
+                    "id,"
+                    "message,"
+                    "created_time,"
+                    "permalink_url"
+                ),
+                "limit": 3,
+                "access_token": user_access_token
+            }
+        )
+
+        try:
+            user_token_data = user_token_response.json()
+        except Exception:
+            user_token_data = {
+                "raw": user_token_response.text
+            }
+
+        results["user_token_test"] = {
+            "status_code": user_token_response.status_code,
+            "success": (
+                user_token_response.status_code < 400
+                and "error" not in user_token_data
+            ),
+            "response": user_token_data
+        }
+
+    return {
+        "success": True,
+        "tests": results
+    }
+
 @app.get("/api/meta/facebook/posts")
 async def meta_facebook_posts(
     page_id: str,
