@@ -2326,6 +2326,206 @@ async def meta_facebook_comments(
         "paging": comments_data.get("paging", {})
     }
 
+@app.get("/api/meta/facebook/video/insights")
+async def meta_facebook_video_insights(
+    page_id: str,
+    video_id: str
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    page_id = str(page_id or "").strip()
+    video_id = str(video_id or "").strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not video_id:
+        return {
+            "success": False,
+            "error": "Не передано video_id."
+        }
+
+    user_access_token = tokens["access_token"]
+    page_access_token = None
+    facebook_page = None
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        # 1. Знаходимо Facebook Page та її токен
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "category,"
+                    "access_token,"
+                    "tasks"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data
+            }
+
+        for page in pages_data.get("data", []):
+            if str(page.get("id")) != page_id:
+                continue
+
+            page_access_token = (
+                page.get("access_token")
+                or user_access_token
+            )
+
+            facebook_page = {
+                "id": page.get("id"),
+                "name": page.get("name"),
+                "category": page.get("category"),
+                "tasks": page.get("tasks", [])
+            }
+
+            break
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Facebook Page не знайдено "
+                    "серед доступних сторінок."
+                )
+            }
+
+        # 2. Основні дані Reel / відео
+        video_response = await client.get(
+            f"{META_GRAPH_URL}/{video_id}",
+            params={
+                "fields": (
+                    "id,"
+                    "description,"
+                    "created_time,"
+                    "updated_time,"
+                    "permalink_url,"
+                    "length"
+                ),
+                "access_token": page_access_token
+            }
+        )
+
+        try:
+            video_data = video_response.json()
+        except Exception:
+            video_data = {
+                "raw": video_response.text
+            }
+
+        if (
+            video_response.status_code >= 400
+            or "error" in video_data
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "Не вдалося отримати дані "
+                    "Facebook Reel."
+                ),
+                "details": video_data
+            }
+
+        # 3. Усі доступні метрики відео / Reel
+        insights_response = await client.get(
+            f"{META_GRAPH_URL}/{video_id}/video_insights",
+            params={
+                "access_token": page_access_token
+            }
+        )
+
+        try:
+            insights_data = insights_response.json()
+        except Exception:
+            insights_data = {
+                "raw": insights_response.text
+            }
+
+    normalized_insights = {}
+    available_metric_names = []
+    insights_error = None
+
+    if (
+        insights_response.status_code >= 400
+        or "error" in insights_data
+    ):
+        insights_error = insights_data.get(
+            "error",
+            insights_data
+        )
+    else:
+        for metric_item in insights_data.get("data", []):
+            metric_name = metric_item.get("name")
+
+            if not metric_name:
+                continue
+
+            metric_value = None
+            values = metric_item.get("values")
+
+            if isinstance(values, list) and values:
+                metric_value = values[-1].get("value")
+
+            available_metric_names.append(metric_name)
+
+            normalized_insights[metric_name] = {
+                "value": metric_value,
+                "title": metric_item.get("title"),
+                "description": metric_item.get(
+                    "description"
+                ),
+                "period": metric_item.get("period")
+            }
+
+    return {
+        "success": True,
+        "facebook_page": facebook_page,
+        "video": {
+            "id": video_data.get("id"),
+            "description": video_data.get(
+                "description",
+                ""
+            ),
+            "created_time": video_data.get(
+                "created_time"
+            ),
+            "updated_time": video_data.get(
+                "updated_time"
+            ),
+            "permalink_url": video_data.get(
+                "permalink_url"
+            ),
+            "length": video_data.get("length"),
+            "is_reel": True
+        },
+        "available_metric_names": (
+            available_metric_names
+        ),
+        "insights": normalized_insights,
+        "insights_error": insights_error
+    }
+
 @app.get("/api/meta/adaccounts")
 async def meta_adaccounts():
     tokens = get_meta_tokens()
