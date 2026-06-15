@@ -1840,7 +1840,10 @@ async def meta_facebook_posts(
                 "permalink_url,"
                 "full_picture,"
                 "status_type,"
-                "is_published"
+                "is_published,"
+                "shares,"
+                "reactions.limit(0).summary(true),"
+                "comments.limit(0).summary(true)"
             ),
             "limit": max(1, min(limit, 100)),
             "access_token": page_access_token
