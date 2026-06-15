@@ -2395,66 +2395,119 @@ async def meta_facebook_comments(
 
     comments = []
 
-    for item in comments_data.get("data", []):
-        author = item.get("from") or {}
+    async with httpx.AsyncClient(timeout=40) as replies_client:
+        for item in comments_data.get("data", []):
+            author = item.get("from") or {}
+            comment_id = item.get("id")
 
-        replies = []
+            replies = []
 
-        replies_data = (
-            item.get("replies", {})
-            .get("data", [])
-        )
-
-        for reply_item in replies_data:
-            reply_author = (
-                reply_item.get("from") or {}
+            # Спочатку беремо вкладені replies,
+            # якщо Meta їх повернула одразу
+            reply_items = (
+                item.get("replies", {})
+                .get("data", [])
             )
 
-            replies.append({
-                "id": reply_item.get("id"),
-                "message": reply_item.get(
-                    "message",
-                    ""
-                ),
-                "created_time": reply_item.get(
+            # Додатково окремо запитуємо відповіді
+            # конкретного Facebook-коментаря
+            if comment_id:
+                replies_response = await replies_client.get(
+                    f"{META_GRAPH_URL}/{comment_id}/comments",
+                    params={
+                        "fields": (
+                            "id,"
+                            "message,"
+                            "created_time,"
+                            "like_count,"
+                            "is_hidden,"
+                            "from{id,name}"
+                        ),
+                        "limit": 50,
+                        "access_token": page_access_token
+                    }
+                )
+
+                try:
+                    replies_data = replies_response.json()
+                except Exception:
+                    replies_data = {
+                        "raw": replies_response.text
+                    }
+
+                if (
+                    replies_response.status_code < 400
+                    and "error" not in replies_data
+                ):
+                    reply_items = replies_data.get(
+                        "data",
+                        []
+                    )
+
+            for reply_item in reply_items:
+                reply_author = (
+                    reply_item.get("from") or {}
+                )
+
+                replies.append({
+                    "id": reply_item.get("id"),
+                    "message": reply_item.get(
+                        "message",
+                        ""
+                    ),
+                    "created_time": reply_item.get(
+                        "created_time"
+                    ),
+                    "like_count": reply_item.get(
+                        "like_count",
+                        0
+                    ),
+                    "is_hidden": reply_item.get(
+                        "is_hidden",
+                        False
+                    ),
+                    "author": {
+                        "id": reply_author.get("id"),
+                        "name": reply_author.get("name")
+                    }
+                })
+
+            comments.append({
+                "id": comment_id,
+                "message": item.get("message", ""),
+                "created_time": item.get(
                     "created_time"
                 ),
-                "like_count": reply_item.get(
+                "like_count": item.get(
                     "like_count",
                     0
                 ),
-                "is_hidden": reply_item.get(
+                "is_hidden": item.get(
                     "is_hidden",
                     False
                 ),
+                "can_hide": item.get(
+                    "can_hide",
+                    False
+                ),
+                "can_remove": item.get(
+                    "can_remove",
+                    False
+                ),
+                "can_comment": item.get(
+                    "can_comment",
+                    True
+                ),
+                "comment_count": max(
+                    item.get("comment_count", 0),
+                    len(replies)
+                ),
                 "author": {
-                    "id": reply_author.get("id"),
-                    "name": reply_author.get("name")
-                }
+                    "id": author.get("id"),
+                    "name": author.get("name")
+                },
+                "replies": replies
             })
-
-        comments.append({
-            "id": item.get("id"),
-            "message": item.get("message", ""),
-            "created_time": item.get("created_time"),
-            "like_count": item.get("like_count", 0),
-            "is_hidden": item.get("is_hidden", False),
-            "can_hide": item.get("can_hide", False),
-            "can_remove": item.get("can_remove", False),
-            "can_comment": item.get(
-                "can_comment",
-                True
-            ),
-            "comment_count": item.get(
-                "comment_count",
-                len(replies)
-            ),
-            "author": {
-                "id": author.get("id"),
-                "name": author.get("name")
-            },
-            "replies": replies
-        })
 
     return {
         "success": True,
