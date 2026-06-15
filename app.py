@@ -1999,17 +1999,7 @@ async def meta_facebook_post_insights(
                     "permalink_url,"
                     "full_picture,"
                     "status_type,"
-                    "is_published,"
-                    "shares,"
-                    "reactions.limit(0).summary(true),"
-                    "comments.limit(0).summary(true),"
-                    "attachments{"
-                        "media_type,"
-                        "media,"
-                        "target,"
-                        "title,"
-                        "url"
-                    "}"
+                    "is_published"
                 ),
                 "limit": 100,
                 "access_token": page_access_token
@@ -2163,6 +2153,177 @@ async def meta_facebook_post_insights(
         ),
         "insights": normalized_insights,
         "insights_error": insights_error
+    }
+
+@app.get("/api/meta/facebook/comments")
+async def meta_facebook_comments(
+    page_id: str,
+    post_id: str,
+    limit: int = 50,
+    after: str = ""
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "comments": [],
+            "count": 0
+        }
+
+    page_id = str(page_id or "").strip()
+    post_id = str(post_id or "").strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id.",
+            "comments": [],
+            "count": 0
+        }
+
+    if not post_id:
+        return {
+            "success": False,
+            "error": "Не передано post_id.",
+            "comments": [],
+            "count": 0
+        }
+
+    user_access_token = tokens["access_token"]
+    page_access_token = None
+    facebook_page = None
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        # 1. Знаходимо Facebook Page та Page Access Token
+        pages_response = await client.get(
+            f"{META_GRAPH_URL}/me/accounts",
+            params={
+                "fields": (
+                    "id,"
+                    "name,"
+                    "category,"
+                    "access_token,"
+                    "tasks"
+                ),
+                "limit": 100,
+                "access_token": user_access_token
+            }
+        )
+
+        pages_data = pages_response.json()
+
+        if "error" in pages_data:
+            return {
+                "success": False,
+                "error": "Не вдалося отримати Facebook Pages.",
+                "details": pages_data,
+                "comments": [],
+                "count": 0
+            }
+
+        for page in pages_data.get("data", []):
+            if str(page.get("id")) != page_id:
+                continue
+
+            page_access_token = (
+                page.get("access_token")
+                or user_access_token
+            )
+
+            facebook_page = {
+                "id": page.get("id"),
+                "name": page.get("name"),
+                "category": page.get("category"),
+                "tasks": page.get("tasks", [])
+            }
+
+            break
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Facebook Page не знайдено "
+                    "серед доступних сторінок."
+                ),
+                "comments": [],
+                "count": 0
+            }
+
+        # 2. Отримуємо коментарі до допису або Reel
+        params = {
+            "fields": (
+                "id,"
+                "message,"
+                "created_time,"
+                "like_count,"
+                "is_hidden,"
+                "can_hide,"
+                "can_remove,"
+                "from{id,name}"
+            ),
+            "limit": max(1, min(limit, 100)),
+            "access_token": page_access_token
+        }
+
+        if after:
+            params["after"] = after
+
+        comments_response = await client.get(
+            f"{META_GRAPH_URL}/{post_id}/comments",
+            params=params
+        )
+
+    try:
+        comments_data = comments_response.json()
+    except Exception:
+        comments_data = {
+            "raw": comments_response.text
+        }
+
+    if (
+        comments_response.status_code >= 400
+        or "error" in comments_data
+    ):
+        return {
+            "success": False,
+            "error": (
+                "Не вдалося отримати коментарі "
+                "Facebook-публікації."
+            ),
+            "details": comments_data,
+            "comments": [],
+            "count": 0
+        }
+
+    comments = []
+
+    for item in comments_data.get("data", []):
+        author = item.get("from") or {}
+
+        comments.append({
+            "id": item.get("id"),
+            "message": item.get("message", ""),
+            "created_time": item.get("created_time"),
+            "like_count": item.get("like_count", 0),
+            "is_hidden": item.get("is_hidden", False),
+            "can_hide": item.get("can_hide", False),
+            "can_remove": item.get("can_remove", False),
+            "author": {
+                "id": author.get("id"),
+                "name": author.get("name")
+            }
+        })
+
+    return {
+        "success": True,
+        "facebook_page": facebook_page,
+        "post_id": post_id,
+        "count": len(comments),
+        "comments": comments,
+        "paging": comments_data.get("paging", {})
     }
 
 @app.get("/api/meta/adaccounts")
