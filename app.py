@@ -92,6 +92,22 @@ class InstagramCommentDeleteRequest(BaseModel):
     instagram_id: str
     comment_id: str
 
+class FacebookCommentReplyRequest(BaseModel):
+    page_id: str
+    comment_id: str
+    message: str
+
+
+class FacebookCommentVisibilityRequest(BaseModel):
+    page_id: str
+    comment_id: str
+    hidden: bool
+
+
+class FacebookCommentDeleteRequest(BaseModel):
+    page_id: str
+    comment_id: str
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -2155,6 +2171,72 @@ async def meta_facebook_post_insights(
         "insights_error": insights_error
     }
 
+async def get_facebook_page_access_token(
+    client: httpx.AsyncClient,
+    page_id: str,
+    user_access_token: str
+):
+    pages_response = await client.get(
+        f"{META_GRAPH_URL}/me/accounts",
+        params={
+            "fields": (
+                "id,"
+                "name,"
+                "category,"
+                "access_token,"
+                "tasks"
+            ),
+            "limit": 100,
+            "access_token": user_access_token
+        }
+    )
+
+    try:
+        pages_data = pages_response.json()
+    except Exception:
+        pages_data = {
+            "raw": pages_response.text
+        }
+
+    if (
+        pages_response.status_code >= 400
+        or "error" in pages_data
+    ):
+        return None, None, pages_data
+
+    for page in pages_data.get("data", []):
+        if str(page.get("id")) != str(page_id):
+            continue
+
+        page_access_token = (
+            page.get("access_token")
+            or user_access_token
+        )
+
+        facebook_page = {
+            "id": page.get("id"),
+            "name": page.get("name"),
+            "category": page.get("category"),
+            "tasks": page.get("tasks", [])
+        }
+
+        return (
+            page_access_token,
+            facebook_page,
+            None
+        )
+
+    return (
+        None,
+        None,
+        {
+            "message": (
+                "Facebook Page не знайдено "
+                "серед доступних сторінок."
+            )
+        }
+    )
+
 @app.get("/api/meta/facebook/comments")
 async def meta_facebook_comments(
     page_id: str,
@@ -2262,7 +2344,17 @@ async def meta_facebook_comments(
                 "is_hidden,"
                 "can_hide,"
                 "can_remove,"
-                "from{id,name}"
+                "can_comment,"
+                "comment_count,"
+                "from{id,name},"
+                "replies.limit(20){"
+                    "id,"
+                    "message,"
+                    "created_time,"
+                    "like_count,"
+                    "is_hidden,"
+                    "from{id,name}"
+                "}"
             ),
             "limit": max(1, min(limit, 100)),
             "access_token": page_access_token
@@ -2303,6 +2395,41 @@ async def meta_facebook_comments(
     for item in comments_data.get("data", []):
         author = item.get("from") or {}
 
+        replies = []
+
+        replies_data = (
+            item.get("replies", {})
+            .get("data", [])
+        )
+
+        for reply_item in replies_data:
+            reply_author = (
+                reply_item.get("from") or {}
+            )
+
+            replies.append({
+                "id": reply_item.get("id"),
+                "message": reply_item.get(
+                    "message",
+                    ""
+                ),
+                "created_time": reply_item.get(
+                    "created_time"
+                ),
+                "like_count": reply_item.get(
+                    "like_count",
+                    0
+                ),
+                "is_hidden": reply_item.get(
+                    "is_hidden",
+                    False
+                ),
+                "author": {
+                    "id": reply_author.get("id"),
+                    "name": reply_author.get("name")
+                }
+            })
+
         comments.append({
             "id": item.get("id"),
             "message": item.get("message", ""),
@@ -2311,10 +2438,19 @@ async def meta_facebook_comments(
             "is_hidden": item.get("is_hidden", False),
             "can_hide": item.get("can_hide", False),
             "can_remove": item.get("can_remove", False),
+            "can_comment": item.get(
+                "can_comment",
+                True
+            ),
+            "comment_count": item.get(
+                "comment_count",
+                len(replies)
+            ),
             "author": {
                 "id": author.get("id"),
                 "name": author.get("name")
-            }
+            },
+            "replies": replies
         })
 
     return {
@@ -2324,6 +2460,283 @@ async def meta_facebook_comments(
         "count": len(comments),
         "comments": comments,
         "paging": comments_data.get("paging", {})
+    }
+
+@app.post("/api/meta/facebook/comments/reply")
+async def meta_facebook_comment_reply(
+    payload: FacebookCommentReplyRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    page_id = payload.page_id.strip()
+    comment_id = payload.comment_id.strip()
+    message = payload.message.strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not comment_id:
+        return {
+            "success": False,
+            "error": "Не передано comment_id."
+        }
+
+    if not message:
+        return {
+            "success": False,
+            "error": "Текст відповіді порожній."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_facebook_page_access_token(
+            client=client,
+            page_id=page_id,
+            user_access_token=user_access_token
+        )
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Не вдалося отримати "
+                    "Page Access Token."
+                ),
+                "details": token_error
+            }
+
+        response = await client.post(
+            f"{META_GRAPH_URL}/{comment_id}/comments",
+            data={
+                "message": message,
+                "access_token": page_access_token
+            }
+        )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "raw": response.text
+        }
+
+    if (
+        response.status_code >= 400
+        or "error" in data
+    ):
+        return {
+            "success": False,
+            "error": (
+                "Не вдалося відповісти "
+                "на Facebook-коментар."
+            ),
+            "details": data
+        }
+
+    return {
+        "success": True,
+        "message": "Відповідь опублікована.",
+        "page_id": page_id,
+        "comment_id": comment_id,
+        "reply_id": data.get("id"),
+        "facebook_page": facebook_page,
+        "result": data
+    }
+
+
+@app.post("/api/meta/facebook/comments/visibility")
+async def meta_facebook_comment_visibility(
+    payload: FacebookCommentVisibilityRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    page_id = payload.page_id.strip()
+    comment_id = payload.comment_id.strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not comment_id:
+        return {
+            "success": False,
+            "error": "Не передано comment_id."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_facebook_page_access_token(
+            client=client,
+            page_id=page_id,
+            user_access_token=user_access_token
+        )
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Не вдалося отримати "
+                    "Page Access Token."
+                ),
+                "details": token_error
+            }
+
+        response = await client.post(
+            f"{META_GRAPH_URL}/{comment_id}",
+            data={
+                "is_hidden": str(
+                    payload.hidden
+                ).lower(),
+                "access_token": page_access_token
+            }
+        )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "raw": response.text
+        }
+
+    if (
+        response.status_code >= 400
+        or "error" in data
+    ):
+        return {
+            "success": False,
+            "error": (
+                "Не вдалося змінити видимість "
+                "Facebook-коментаря."
+            ),
+            "details": data
+        }
+
+    return {
+        "success": True,
+        "hidden": payload.hidden,
+        "message": (
+            "Коментар приховано."
+            if payload.hidden
+            else "Коментар знову показується."
+        ),
+        "page_id": page_id,
+        "comment_id": comment_id,
+        "facebook_page": facebook_page,
+        "result": data
+    }
+
+
+@app.delete("/api/meta/facebook/comments")
+async def meta_facebook_comment_delete(
+    payload: FacebookCommentDeleteRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    page_id = payload.page_id.strip()
+    comment_id = payload.comment_id.strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not comment_id:
+        return {
+            "success": False,
+            "error": "Не передано comment_id."
+        }
+
+    user_access_token = tokens["access_token"]
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_facebook_page_access_token(
+            client=client,
+            page_id=page_id,
+            user_access_token=user_access_token
+        )
+
+        if not page_access_token:
+            return {
+                "success": False,
+                "error": (
+                    "Не вдалося отримати "
+                    "Page Access Token."
+                ),
+                "details": token_error
+            }
+
+        response = await client.delete(
+            f"{META_GRAPH_URL}/{comment_id}",
+            params={
+                "access_token": page_access_token
+            }
+        )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "raw": response.text
+        }
+
+    if (
+        response.status_code >= 400
+        or "error" in data
+    ):
+        return {
+            "success": False,
+            "error": (
+                "Не вдалося видалити "
+                "Facebook-коментар."
+            ),
+            "details": data
+        }
+
+    return {
+        "success": True,
+        "message": "Facebook-коментар видалено.",
+        "page_id": page_id,
+        "comment_id": comment_id,
+        "facebook_page": facebook_page,
+        "result": data
     }
 
 @app.get("/api/meta/facebook/video/insights")
