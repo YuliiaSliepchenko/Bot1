@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -4322,14 +4322,32 @@ async def meta_campaign_insights(campaign_id: str, date_preset: str = "last_30d"
 
 @app.get("/api/meta/webhook")
 async def meta_webhook_verify(
-    hub_mode: str = None,
-    hub_challenge: str = None,
-    hub_verify_token: str = None
+    hub_mode: str = Query(
+        default=None,
+        alias="hub.mode"
+    ),
+    hub_challenge: str = Query(
+        default=None,
+        alias="hub.challenge"
+    ),
+    hub_verify_token: str = Query(
+        default=None,
+        alias="hub.verify_token"
+    )
 ):
-    if hub_mode == "subscribe" and hub_verify_token == META_VERIFY_TOKEN:
-        return Response(content=hub_challenge or "", media_type="text/plain")
+    if (
+        hub_mode == "subscribe"
+        and hub_verify_token == META_VERIFY_TOKEN
+    ):
+        return Response(
+            content=hub_challenge or "",
+            media_type="text/plain"
+        )
 
-    raise HTTPException(status_code=403, detail="Meta webhook verification failed")
+    raise HTTPException(
+        status_code=403,
+        detail="Meta webhook verification failed"
+    )
 
 
 @app.post("/api/meta/webhook")
