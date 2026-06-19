@@ -1,9 +1,21 @@
 import sqlite3
 import json
+import os
+
+
+VOLUME_PATH = os.getenv(
+    "RAILWAY_VOLUME_MOUNT_PATH",
+    "."
+)
+
+DB_PATH = os.path.join(
+    VOLUME_PATH,
+    "school.db"
+)
 
 
 def init_db():
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -101,7 +113,7 @@ def init_db():
 
 
 def save_lead(source, message):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -114,7 +126,7 @@ def save_lead(source, message):
 
 
 def save_google_tokens(email, access_token, refresh_token):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("DELETE FROM google_tokens")
@@ -129,7 +141,7 @@ def save_google_tokens(email, access_token, refresh_token):
 
 
 def get_google_tokens():
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -153,7 +165,7 @@ def get_google_tokens():
 
 
 def delete_google_tokens():
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("DELETE FROM google_tokens")
@@ -163,7 +175,7 @@ def delete_google_tokens():
 
 
 def save_meta_tokens(facebook_user_id, name, email, access_token, token_type=None, expires_at=None):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("DELETE FROM meta_tokens")
@@ -192,7 +204,7 @@ def save_meta_tokens(facebook_user_id, name, email, access_token, token_type=Non
 
 
 def get_meta_tokens():
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -219,7 +231,7 @@ def get_meta_tokens():
 
 
 def delete_meta_tokens():
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("DELETE FROM meta_tokens")
@@ -230,7 +242,7 @@ def delete_meta_tokens():
 
 
 def save_meta_pages(pages):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("DELETE FROM meta_pages")
@@ -260,7 +272,7 @@ def save_meta_pages(pages):
 
 
 def get_meta_pages():
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -292,7 +304,7 @@ def get_meta_pages():
     return pages
 
 def get_meta_page(page_id):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -337,7 +349,7 @@ def save_meta_message(
     participant_name=None,
     participant_avatar=None
 ):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     raw_json = json.dumps(
@@ -449,7 +461,7 @@ def save_meta_message(
     return True
 
 def get_meta_conversations(page_id=None, platform="facebook", limit=100):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     if page_id:
@@ -516,7 +528,7 @@ def get_meta_messages(
     platform="facebook",
     limit=200
 ):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
@@ -568,7 +580,7 @@ def mark_meta_conversation_read(
     participant_id,
     platform="facebook"
 ):
-    conn = sqlite3.connect("school.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.execute("""
