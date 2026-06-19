@@ -4451,24 +4451,18 @@ async def meta_webhook_receive(payload: dict):
 
             for event in messaging_events:
                 try:
-                                        sender_id = str(
-                        event.get(
-                            "sender",
-                            {}
-                        ).get("id") or ""
+                    sender_id = str(
+                        event.get("sender", {}).get("id")
+                        or ""
                     ).strip()
 
                     recipient_id = str(
-                        event.get(
-                            "recipient",
-                            {}
-                        ).get("id") or ""
+                        event.get("recipient", {}).get("id")
+                        or ""
                     ).strip()
 
                     # Повідомлення доставлено клієнту
-                    delivery = event.get(
-                        "delivery"
-                    )
+                    delivery = event.get("delivery")
 
                     if delivery:
                         page_id = (
@@ -4478,10 +4472,7 @@ async def meta_webhook_receive(payload: dict):
 
                         participant_id = sender_id
 
-                        if (
-                            page_id
-                            and participant_id
-                        ):
+                        if page_id and participant_id:
                             mark_meta_messages_delivered(
                                 page_id=page_id,
                                 participant_id=participant_id,
@@ -4499,21 +4490,17 @@ async def meta_webhook_receive(payload: dict):
                             "META MESSAGE DELIVERED:",
                             {
                                 "page_id": page_id,
-                                "participant_id":
-                                    participant_id,
-                                "watermark":
-                                    delivery.get(
-                                        "watermark"
-                                    )
+                                "participant_id": participant_id,
+                                "watermark": delivery.get(
+                                    "watermark"
+                                )
                             }
                         )
 
                         continue
 
                     # Клієнт прочитав повідомлення
-                    read_event = event.get(
-                        "read"
-                    )
+                    read_event = event.get("read")
 
                     if read_event:
                         page_id = (
@@ -4523,10 +4510,7 @@ async def meta_webhook_receive(payload: dict):
 
                         participant_id = sender_id
 
-                        if (
-                            page_id
-                            and participant_id
-                        ):
+                        if page_id and participant_id:
                             mark_meta_messages_read(
                                 page_id=page_id,
                                 participant_id=participant_id,
@@ -4540,12 +4524,10 @@ async def meta_webhook_receive(payload: dict):
                             "META MESSAGE READ:",
                             {
                                 "page_id": page_id,
-                                "participant_id":
-                                    participant_id,
-                                "watermark":
-                                    read_event.get(
-                                        "watermark"
-                                    )
+                                "participant_id": participant_id,
+                                "watermark": read_event.get(
+                                    "watermark"
+                                )
                             }
                         )
 
@@ -4553,21 +4535,9 @@ async def meta_webhook_receive(payload: dict):
 
                     message = event.get("message")
 
-                    # Поки зберігаємо саме повідомлення.
-                    # Reads, deliveries та інші події пропускаємо.
                     if not message:
                         ignored_events += 1
                         continue
-
-                    sender_id = str(
-                        event.get("sender", {}).get("id")
-                        or ""
-                    ).strip()
-
-                    recipient_id = str(
-                        event.get("recipient", {}).get("id")
-                        or ""
-                    ).strip()
 
                     is_echo = bool(
                         message.get("is_echo")
