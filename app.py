@@ -4765,6 +4765,165 @@ async def meta_direct_mark_read(
         "participant_id": clean_participant_id
     }
 
+class MetaDirectSendRequest(BaseModel):
+    page_id: str
+    participant_id: str
+    message: str
+
+
+@app.post("/api/meta/direct/send")
+async def meta_direct_send(
+    payload: MetaDirectSendRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    page_id = str(
+        payload.page_id or ""
+    ).strip()
+
+    participant_id = str(
+        payload.participant_id or ""
+    ).strip()
+
+    message_text = str(
+        payload.message or ""
+    ).strip()
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    if not message_text:
+        return {
+            "success": False,
+            "error": "Повідомлення порожнє."
+        }
+
+    page = get_meta_page(page_id)
+
+    if not page:
+        return {
+            "success": False,
+            "error": "Facebook-сторінку не знайдено в базі."
+        }
+
+    page_access_token = page.get(
+        "access_token"
+    )
+
+    if not page_access_token:
+        return {
+            "success": False,
+            "error": "У сторінки немає Page Access Token."
+        }
+
+    request_body = {
+        "messaging_type": "RESPONSE",
+        "recipient": {
+            "id": participant_id
+        },
+        "message": {
+            "text": message_text
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=30
+        ) as client:
+            response = await client.post(
+                f"{META_GRAPH_URL}/{page_id}/messages",
+                params={
+                    "access_token": page_access_token
+                },
+                json=request_body
+            )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                "raw": response.text
+            }
+
+        if (
+            response.status_code >= 400
+            or "error" in data
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "Meta не дозволила "
+                    "надіслати повідомлення."
+                ),
+                "details": data
+            }
+
+        timestamp = int(
+            time.time() * 1000
+        )
+
+        message_id = str(
+            data.get("message_id")
+            or (
+                f"crm:{page_id}:"
+                f"{participant_id}:"
+                f"{timestamp}"
+            )
+        )
+
+        save_meta_message(
+            mid=message_id,
+            platform="facebook",
+            page_id=page_id,
+            participant_id=participant_id,
+            direction="out",
+            text=message_text,
+            timestamp=timestamp,
+            message_type="text",
+            attachment_url=None,
+            status="sent",
+            raw_payload={
+                "source": "crm",
+                "meta_response": data
+            }
+        )
+
+        return {
+            "success": True,
+            "message": "Повідомлення надіслано.",
+            "message_id": message_id,
+            "page_id": page_id,
+            "participant_id": participant_id,
+            "text": message_text
+        }
+
+    except Exception as error:
+        print(
+            "META DIRECT SEND ERROR:",
+            repr(error)
+        )
+
+        return {
+            "success": False,
+            "error": "Помилка надсилання повідомлення.",
+            "details": str(error)
+        }
+
 @app.get("/api/meta/debug")
 async def meta_debug():
     tokens = get_meta_tokens()
