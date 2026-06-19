@@ -19,7 +19,12 @@ from db import (
     get_meta_tokens,
     delete_meta_tokens,
     save_meta_pages,
-    get_meta_pages
+    get_meta_pages,
+    get_meta_page,
+    save_meta_message,
+    get_meta_conversations,
+    get_meta_messages,
+    mark_meta_conversation_read
 )
 
 load_dotenv()
@@ -4350,13 +4355,292 @@ async def meta_webhook_verify(
     )
 
 
+async def get_meta_participant_profile(
+    page_id: str,
+    participant_id: str
+):
+    """
+    Отримує ім'я та аватар клієнта Messenger.
+    Якщо Meta не поверне профіль, повідомлення все одно збережеться.
+    """
+
+    page = get_meta_page(page_id)
+
+    if not page:
+        return {}
+
+    page_access_token = page.get("access_token")
+
+    if not page_access_token:
+        return {}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{META_GRAPH_URL}/{participant_id}",
+                params={
+                    "fields": "first_name,last_name,profile_pic",
+                    "access_token": page_access_token
+                }
+            )
+
+        if response.status_code != 200:
+            print(
+                "META PROFILE ERROR:",
+                response.status_code,
+                response.text
+            )
+            return {}
+
+        data = response.json()
+
+        first_name = str(
+            data.get("first_name") or ""
+        ).strip()
+
+        last_name = str(
+            data.get("last_name") or ""
+        ).strip()
+
+        full_name = " ".join(
+            part
+            for part in [first_name, last_name]
+            if part
+        ).strip()
+
+        return {
+            "name": full_name,
+            "avatar": data.get("profile_pic")
+        }
+
+    except Exception as error:
+        print(
+            "META PROFILE EXCEPTION:",
+            repr(error)
+        )
+        return {}
+
+
 @app.post("/api/meta/webhook")
 async def meta_webhook_receive(payload: dict):
     print("META WEBHOOK PAYLOAD:", payload)
 
-    return {
-        "success": True
-    }
+    saved_messages = 0
+    ignored_events = 0
+
+    try:
+        if payload.get("object") != "page":
+            return {
+                "success": True,
+                "saved_messages": 0,
+                "ignored_events": 0
+            }
+
+        entries = payload.get("entry") or []
+
+        for entry in entries:
+            entry_page_id = str(
+                entry.get("id") or ""
+            ).strip()
+
+            messaging_events = (
+                entry.get("messaging") or []
+            )
+
+            for event in messaging_events:
+                try:
+                    message = event.get("message")
+
+                    # Поки зберігаємо саме повідомлення.
+                    # Reads, deliveries та інші події пропускаємо.
+                    if not message:
+                        ignored_events += 1
+                        continue
+
+                    sender_id = str(
+                        event.get("sender", {}).get("id")
+                        or ""
+                    ).strip()
+
+                    recipient_id = str(
+                        event.get("recipient", {}).get("id")
+                        or ""
+                    ).strip()
+
+                    is_echo = bool(
+                        message.get("is_echo")
+                    )
+
+                    if is_echo:
+                        # Повідомлення було відправлено сторінкою
+                        page_id = (
+                            entry_page_id
+                            or sender_id
+                        )
+
+                        participant_id = recipient_id
+                        direction = "out"
+
+                    else:
+                        # Повідомлення надійшло від клієнта
+                        page_id = (
+                            entry_page_id
+                            or recipient_id
+                        )
+
+                        participant_id = sender_id
+                        direction = "in"
+
+                    if not page_id or not participant_id:
+                        print(
+                            "META MESSAGE IGNORED: "
+                            "немає page_id або participant_id",
+                            event
+                        )
+
+                        ignored_events += 1
+                        continue
+
+                    timestamp = int(
+                        event.get("timestamp")
+                        or int(time.time() * 1000)
+                    )
+
+                    mid = str(
+                        message.get("mid")
+                        or (
+                            f"{page_id}:"
+                            f"{participant_id}:"
+                            f"{timestamp}:"
+                            f"{direction}"
+                        )
+                    )
+
+                    text = str(
+                        message.get("text") or ""
+                    ).strip()
+
+                    message_type = "text"
+                    attachment_url = None
+
+                    attachments = (
+                        message.get("attachments") or []
+                    )
+
+                    if attachments:
+                        first_attachment = attachments[0]
+
+                        message_type = str(
+                            first_attachment.get("type")
+                            or "attachment"
+                        )
+
+                        attachment_payload = (
+                            first_attachment.get("payload")
+                            or {}
+                        )
+
+                        attachment_url = (
+                            attachment_payload.get("url")
+                        )
+
+                        if not text:
+                            attachment_labels = {
+                                "image": "📷 Фото",
+                                "video": "🎥 Відео",
+                                "audio": "🎵 Аудіо",
+                                "file": "📎 Файл",
+                                "location": "📍 Геолокація",
+                                "fallback": "🔗 Вкладення"
+                            }
+
+                            text = attachment_labels.get(
+                                message_type,
+                                "📎 Вкладення"
+                            )
+
+                    if not text:
+                        text = "Повідомлення без тексту"
+
+                    participant_name = None
+                    participant_avatar = None
+
+                    if direction == "in":
+                        profile = (
+                            await get_meta_participant_profile(
+                                page_id,
+                                participant_id
+                            )
+                        )
+
+                        participant_name = (
+                            profile.get("name")
+                        )
+
+                        participant_avatar = (
+                            profile.get("avatar")
+                        )
+
+                    inserted = save_meta_message(
+                        mid=mid,
+                        platform="facebook",
+                        page_id=page_id,
+                        participant_id=participant_id,
+                        direction=direction,
+                        text=text,
+                        timestamp=timestamp,
+                        message_type=message_type,
+                        attachment_url=attachment_url,
+                        status=(
+                            "sent"
+                            if direction == "out"
+                            else "received"
+                        ),
+                        raw_payload=event,
+                        participant_name=participant_name,
+                        participant_avatar=participant_avatar
+                    )
+
+                    if inserted:
+                        saved_messages += 1
+
+                    print(
+                        "META MESSAGE SAVED:",
+                        {
+                            "inserted": inserted,
+                            "page_id": page_id,
+                            "participant_id": participant_id,
+                            "direction": direction,
+                            "text": text
+                        }
+                    )
+
+                except Exception as event_error:
+                    print(
+                        "META MESSAGE SAVE ERROR:",
+                        repr(event_error)
+                    )
+
+        return {
+            "success": True,
+            "saved_messages": saved_messages,
+            "ignored_events": ignored_events
+        }
+
+    except Exception as error:
+        # Meta повинна отримати 200 OK,
+        # інакше буде багаторазово повторювати webhook.
+        print(
+            "META WEBHOOK ERROR:",
+            repr(error)
+        )
+
+        return {
+            "success": True,
+            "saved_messages": saved_messages,
+            "ignored_events": ignored_events,
+            "processing_error": str(error)
+        }
 
 @app.get("/api/meta/debug")
 async def meta_debug():
