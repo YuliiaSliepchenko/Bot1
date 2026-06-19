@@ -598,3 +598,90 @@ def mark_meta_conversation_read(
 
     conn.commit()
     conn.close()
+
+def mark_meta_messages_delivered(
+    page_id,
+    participant_id,
+    watermark=0,
+    mids=None
+):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    clean_mids = [
+        str(mid)
+        for mid in (mids or [])
+        if mid
+    ]
+
+    if clean_mids:
+        placeholders = ",".join(
+            "?" for _ in clean_mids
+        )
+
+        cur.execute(f"""
+        UPDATE meta_messages
+        SET status = 'delivered'
+        WHERE platform = 'facebook'
+          AND page_id = ?
+          AND participant_id = ?
+          AND direction = 'out'
+          AND mid IN ({placeholders})
+          AND status != 'read'
+        """, [
+            str(page_id),
+            str(participant_id),
+            *clean_mids
+        ])
+
+    if int(watermark or 0) > 0:
+        cur.execute("""
+        UPDATE meta_messages
+        SET status = 'delivered'
+        WHERE platform = 'facebook'
+          AND page_id = ?
+          AND participant_id = ?
+          AND direction = 'out'
+          AND timestamp <= ?
+          AND status != 'read'
+        """, (
+            str(page_id),
+            str(participant_id),
+            int(watermark)
+        ))
+
+    conn.commit()
+    conn.close()
+
+
+def mark_meta_messages_read(
+    page_id,
+    participant_id,
+    watermark
+):
+    clean_watermark = int(
+        watermark or 0
+    )
+
+    if clean_watermark <= 0:
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    UPDATE meta_messages
+    SET status = 'read'
+    WHERE platform = 'facebook'
+      AND page_id = ?
+      AND participant_id = ?
+      AND direction = 'out'
+      AND timestamp <= ?
+    """, (
+        str(page_id),
+        str(participant_id),
+        clean_watermark
+    ))
+
+    conn.commit()
+    conn.close()
