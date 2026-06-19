@@ -4642,6 +4642,129 @@ async def meta_webhook_receive(payload: dict):
             "processing_error": str(error)
         }
 
+@app.get("/api/meta/direct/conversations")
+async def meta_direct_conversations(
+    page_id: str = "",
+    limit: int = 100
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "conversations": []
+        }
+
+    clean_page_id = str(page_id or "").strip()
+
+    conversations = get_meta_conversations(
+        page_id=clean_page_id or None,
+        platform="facebook",
+        limit=limit
+    )
+
+    return {
+        "success": True,
+        "page_id": clean_page_id or None,
+        "count": len(conversations),
+        "conversations": conversations
+    }
+
+
+@app.get("/api/meta/direct/messages")
+async def meta_direct_messages(
+    page_id: str,
+    participant_id: str,
+    limit: int = 200
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "messages": []
+        }
+
+    clean_page_id = str(page_id or "").strip()
+    clean_participant_id = str(
+        participant_id or ""
+    ).strip()
+
+    if not clean_page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id.",
+            "messages": []
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id.",
+            "messages": []
+        }
+
+    messages = get_meta_messages(
+        page_id=clean_page_id,
+        participant_id=clean_participant_id,
+        platform="facebook",
+        limit=limit
+    )
+
+    return {
+        "success": True,
+        "page_id": clean_page_id,
+        "participant_id": clean_participant_id,
+        "count": len(messages),
+        "messages": messages
+    }
+
+
+@app.post("/api/meta/direct/read")
+async def meta_direct_mark_read(
+    page_id: str,
+    participant_id: str
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    clean_page_id = str(page_id or "").strip()
+    clean_participant_id = str(
+        participant_id or ""
+    ).strip()
+
+    if not clean_page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    mark_meta_conversation_read(
+        page_id=clean_page_id,
+        participant_id=clean_participant_id,
+        platform="facebook"
+    )
+
+    return {
+        "success": True,
+        "message": "Діалог позначено прочитаним.",
+        "page_id": clean_page_id,
+        "participant_id": clean_participant_id
+    }
+
 @app.get("/api/meta/debug")
 async def meta_debug():
     tokens = get_meta_tokens()
