@@ -1,14 +1,28 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    UploadFile,
+    File,
+    Form
+)
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import time
 import httpx
 import base64
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import (
+    RedirectResponse,
+    Response,
+    FileResponse
+)
 from urllib.parse import urlencode
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
+import json
+from pathlib import Path
+from uuid import uuid4
 from db import (
     init_db,
     save_lead,
@@ -30,6 +44,31 @@ from db import (
 )
 
 load_dotenv()
+
+DIRECT_UPLOAD_ROOT = Path(
+    os.getenv(
+        "RAILWAY_VOLUME_MOUNT_PATH",
+        "."
+    )
+) / "direct_uploads"
+
+DIRECT_UPLOAD_ROOT.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+DIRECT_IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif"
+}
+
+DIRECT_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+
+APP_PUBLIC_URL = os.getenv(
+    "APP_PUBLIC_URL",
+    "https://sitechat-production.up.railway.app"
+).rstrip("/")
 
 app = FastAPI()
 
@@ -4837,6 +4876,29 @@ async def meta_direct_mark_read(
         "participant_id": clean_participant_id
     }
 
+@app.get("/api/meta/direct/media/{filename}")
+async def meta_direct_media(filename: str):
+    safe_filename = Path(filename).name
+
+    if safe_filename != filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Некоректне ім’я файлу."
+        )
+
+    file_path = (
+        DIRECT_UPLOAD_ROOT
+        / safe_filename
+    )
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="Файл не знайдено."
+        )
+
+    return FileResponse(file_path)
+
 class MetaDirectSendRequest(BaseModel):
     page_id: str
     participant_id: str
@@ -4993,6 +5055,288 @@ async def meta_direct_send(
         return {
             "success": False,
             "error": "Помилка надсилання повідомлення.",
+            "details": str(error)
+        }
+
+@app.post("/api/meta/direct/send-image")
+async def meta_direct_send_image(
+    page_id: str = Form(...),
+    participant_id: str = Form(...),
+    image: UploadFile = File(...)
+):
+    clean_page_id = str(
+        page_id or ""
+    ).strip()
+
+    clean_participant_id = str(
+        participant_id or ""
+    ).strip()
+
+    if not clean_page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    content_type = str(
+        image.content_type or ""
+    ).lower()
+
+    extension = DIRECT_IMAGE_TYPES.get(
+        content_type
+    )
+
+    if not extension:
+        return {
+            "success": False,
+            "error": (
+                "Підтримуються тільки "
+                "JPG, PNG та GIF."
+            )
+        }
+
+    image_bytes = await image.read()
+
+    if not image_bytes:
+        return {
+            "success": False,
+            "error": "Файл порожній."
+        }
+
+    if len(image_bytes) > DIRECT_IMAGE_MAX_BYTES:
+        return {
+            "success": False,
+            "error": (
+                "Фото завелике. "
+                "Максимальний розмір — 8 МБ."
+            )
+        }
+
+    page = get_meta_page(
+        clean_page_id
+    )
+
+    if not page:
+        return {
+            "success": False,
+            "error": (
+                "Facebook-сторінку "
+                "не знайдено в базі."
+            )
+        }
+
+    page_access_token = page.get(
+        "access_token"
+    )
+
+    if not page_access_token:
+        return {
+            "success": False,
+            "error": (
+                "У сторінки немає "
+                "Page Access Token."
+            )
+        }
+
+    upload_data = {
+        "recipient": json.dumps({
+            "id": clean_participant_id
+        }),
+        "message": json.dumps({
+            "attachment": {
+                "type": "image",
+                "payload": {
+                    "is_reusable": False
+                }
+            }
+        })
+    }
+
+    upload_files = {
+        "filedata": (
+            image.filename
+            or f"image{extension}",
+            image_bytes,
+            content_type
+        )
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=60
+        ) as client:
+            upload_response = await client.post(
+                (
+                    f"{META_GRAPH_URL}/"
+                    f"{clean_page_id}/"
+                    "message_attachments"
+                ),
+                params={
+                    "access_token":
+                        page_access_token
+                },
+                data=upload_data,
+                files=upload_files
+            )
+
+            try:
+                upload_result = (
+                    upload_response.json()
+                )
+            except Exception:
+                upload_result = {
+                    "raw": upload_response.text
+                }
+
+            attachment_id = (
+                upload_result.get(
+                    "attachment_id"
+                )
+            )
+
+            if (
+                upload_response.status_code >= 400
+                or not attachment_id
+                or "error" in upload_result
+            ):
+                return {
+                    "success": False,
+                    "error": (
+                        "Meta не прийняла "
+                        "зображення."
+                    ),
+                    "details": upload_result
+                }
+
+            send_response = await client.post(
+                (
+                    f"{META_GRAPH_URL}/"
+                    f"{clean_page_id}/messages"
+                ),
+                params={
+                    "access_token":
+                        page_access_token
+                },
+                json={
+                    "messaging_type": "RESPONSE",
+                    "recipient": {
+                        "id":
+                            clean_participant_id
+                    },
+                    "message": {
+                        "attachment": {
+                            "type": "image",
+                            "payload": {
+                                "attachment_id":
+                                    attachment_id
+                            }
+                        }
+                    }
+                }
+            )
+
+        try:
+            send_result = send_response.json()
+        except Exception:
+            send_result = {
+                "raw": send_response.text
+            }
+
+        if (
+            send_response.status_code >= 400
+            or "error" in send_result
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "Meta не дозволила "
+                    "надіслати фото."
+                ),
+                "details": send_result
+            }
+
+        stored_filename = (
+            f"{uuid4().hex}{extension}"
+        )
+
+        stored_path = (
+            DIRECT_UPLOAD_ROOT
+            / stored_filename
+        )
+
+        stored_path.write_bytes(
+            image_bytes
+        )
+
+        attachment_url = (
+            f"{APP_PUBLIC_URL}"
+            f"/api/meta/direct/media/"
+            f"{stored_filename}"
+        )
+
+        timestamp = int(
+            time.time() * 1000
+        )
+
+        message_id = str(
+            send_result.get("message_id")
+            or (
+                f"crm-image:"
+                f"{clean_page_id}:"
+                f"{clean_participant_id}:"
+                f"{timestamp}"
+            )
+        )
+
+        save_meta_message(
+            mid=message_id,
+            platform="facebook",
+            page_id=clean_page_id,
+            participant_id=(
+                clean_participant_id
+            ),
+            direction="out",
+            text="📷 Фото",
+            timestamp=timestamp,
+            message_type="image",
+            attachment_url=attachment_url,
+            status="sent",
+            raw_payload={
+                "source": "crm",
+                "attachment_id":
+                    attachment_id,
+                "meta_response":
+                    send_result
+            }
+        )
+
+        return {
+            "success": True,
+            "message": "Фото надіслано.",
+            "message_id": message_id,
+            "attachment_id":
+                attachment_id,
+            "attachment_url":
+                attachment_url
+        }
+
+    except Exception as error:
+        print(
+            "META DIRECT IMAGE ERROR:",
+            repr(error)
+        )
+
+        return {
+            "success": False,
+            "error": (
+                "Помилка надсилання фото."
+            ),
             "details": str(error)
         }
 
