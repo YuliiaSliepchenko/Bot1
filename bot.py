@@ -63,7 +63,7 @@ async def ask_api(question):
 @dp.message(CommandStart())
 async def start(message: types.Message):
     await message.answer(
-        "👋 Вітаю в ItEnAi School\n\nОберіть кнопку або напишіть питання",
+        "👋 Вітаємо в ItEnAi School\n\nОберіть кнопку або напишіть, будь ласка, запитання",
         reply_markup=keyboard
     )
 
@@ -72,7 +72,7 @@ async def handle(message: types.Message):
     text = message.text.strip()
 
     if text == "❌ Вийти":
-        await message.answer("Чат очищено. Напишіть /start", reply_markup=None)
+        await message.answer("Чат очищено. Напишіть, будь ласка, /start", reply_markup=None)
         return
 
     question = normalize(text)
