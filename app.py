@@ -5204,6 +5204,20 @@ async def meta_instagram_direct_send(
         "page_access_token"
     )
 
+    facebook_page_id = str(
+        access_data.get("facebook_page_id") or ""
+    ).strip()
+
+    if not facebook_page_id:
+        return {
+            "success": False,
+            "error": (
+                "Не знайдено Facebook Page ID "
+                "для цього Instagram акаунта."
+            ),
+            "details": access_data
+        }
+
     request_body = {
         "messaging_type": "RESPONSE",
         "recipient": {
@@ -5217,7 +5231,7 @@ async def meta_instagram_direct_send(
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                f"{META_GRAPH_URL}/{instagram_id}/messages",
+                f"{META_GRAPH_URL}/{facebook_page_id}/messages",
                 params={
                     "access_token": page_access_token
                 },
@@ -5271,7 +5285,9 @@ async def meta_instagram_direct_send(
             status="sent",
             raw_payload={
                 "source": "crm",
-                "meta_response": data
+                "meta_response": data,
+                "instagram_id": instagram_id,
+                "facebook_page_id": facebook_page_id
             }
         )
 
