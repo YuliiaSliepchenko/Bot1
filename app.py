@@ -4489,12 +4489,22 @@ async def meta_webhook_receive(payload: dict):
     ignored_events = 0
 
     try:
-        if payload.get("object") != "page":
+        object_type = str(
+            payload.get("object") or ""
+        ).lower()
+
+        if object_type not in ["page", "instagram"]:
             return {
                 "success": True,
                 "saved_messages": 0,
                 "ignored_events": 0
             }
+
+        platform = (
+            "instagram"
+            if object_type == "instagram"
+            else "facebook"
+        )
 
         entries = payload.get("entry") or []
 
@@ -4530,7 +4540,7 @@ async def meta_webhook_receive(payload: dict):
 
                         participant_id = sender_id
 
-                        if page_id and participant_id:
+                        if platform == "facebook" and page_id and participant_id:
                             mark_meta_messages_delivered(
                                 page_id=page_id,
                                 participant_id=participant_id,
@@ -4568,7 +4578,7 @@ async def meta_webhook_receive(payload: dict):
 
                         participant_id = sender_id
 
-                        if page_id and participant_id:
+                        if platform == "facebook" and page_id and participant_id:
                             mark_meta_messages_read(
                                 page_id=page_id,
                                 participant_id=participant_id,
@@ -4696,24 +4706,32 @@ async def meta_webhook_receive(payload: dict):
                     participant_avatar = None
 
                     if direction == "in":
-                        profile = (
-                            await get_meta_participant_profile(
-                                page_id,
-                                participant_id
+                        if platform == "facebook":
+                            profile = (
+                                await get_meta_participant_profile(
+                                    page_id,
+                                    participant_id
+                                )
                             )
-                        )
 
-                        participant_name = (
-                            profile.get("name")
-                        )
+                            participant_name = (
+                                profile.get("name")
+                            )
 
-                        participant_avatar = (
-                            profile.get("avatar")
-                        )
+                            participant_avatar = (
+                                profile.get("avatar")
+                            )
+
+                        else:
+                            participant_name = (
+                                "Instagram клієнт "
+                                + participant_id[-6:]
+                            )
+                            participant_avatar = None
 
                     inserted = save_meta_message(
                         mid=mid,
-                        platform="facebook",
+                        platform=platform,
                         page_id=page_id,
                         participant_id=participant_id,
                         direction=direction,
@@ -4738,6 +4756,7 @@ async def meta_webhook_receive(payload: dict):
                         "META MESSAGE SAVED:",
                         {
                             "inserted": inserted,
+                            "platform": platform,
                             "page_id": page_id,
                             "participant_id": participant_id,
                             "direction": direction,
@@ -4895,6 +4914,137 @@ async def meta_direct_mark_read(
         "participant_id": clean_participant_id
     }
 
+@app.get("/api/meta/instagram/direct/conversations")
+async def meta_instagram_direct_conversations(
+    instagram_id: str = "",
+    limit: int = 100
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "conversations": []
+        }
+
+    clean_instagram_id = str(
+        instagram_id or ""
+    ).strip()
+
+    conversations = get_meta_conversations(
+        page_id=clean_instagram_id or None,
+        platform="instagram",
+        limit=limit
+    )
+
+    return {
+        "success": True,
+        "instagram_id": clean_instagram_id or None,
+        "count": len(conversations),
+        "conversations": conversations
+    }
+
+
+@app.get("/api/meta/instagram/direct/messages")
+async def meta_instagram_direct_messages(
+    instagram_id: str,
+    participant_id: str,
+    limit: int = 200
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено.",
+            "messages": []
+        }
+
+    clean_instagram_id = str(
+        instagram_id or ""
+    ).strip()
+
+    clean_participant_id = str(
+        participant_id or ""
+    ).strip()
+
+    if not clean_instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id.",
+            "messages": []
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id.",
+            "messages": []
+        }
+
+    messages = get_meta_messages(
+        page_id=clean_instagram_id,
+        participant_id=clean_participant_id,
+        platform="instagram",
+        limit=limit
+    )
+
+    return {
+        "success": True,
+        "instagram_id": clean_instagram_id,
+        "participant_id": clean_participant_id,
+        "count": len(messages),
+        "messages": messages
+    }
+
+
+@app.post("/api/meta/instagram/direct/read")
+async def meta_instagram_direct_mark_read(
+    instagram_id: str,
+    participant_id: str
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    clean_instagram_id = str(
+        instagram_id or ""
+    ).strip()
+
+    clean_participant_id = str(
+        participant_id or ""
+    ).strip()
+
+    if not clean_instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    mark_meta_conversation_read(
+        page_id=clean_instagram_id,
+        participant_id=clean_participant_id,
+        platform="instagram"
+    )
+
+    return {
+        "success": True,
+        "message": "Instagram-діалог позначено прочитаним.",
+        "instagram_id": clean_instagram_id,
+        "participant_id": clean_participant_id
+    }
+
 @app.get("/api/meta/direct/media/{filename}")
 async def meta_direct_media(filename: str):
     safe_filename = Path(filename).name
@@ -4917,6 +5067,234 @@ async def meta_direct_media(filename: str):
         )
 
     return FileResponse(file_path)
+
+async def get_instagram_page_access_token(
+    instagram_id: str
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return None
+
+    user_access_token = tokens.get(
+        "access_token"
+    )
+
+    pages = get_meta_pages()
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        if not pages:
+            pages_response = await client.get(
+                f"{META_GRAPH_URL}/me/accounts",
+                params={
+                    "fields": "id,name,access_token,tasks",
+                    "limit": 100,
+                    "access_token": user_access_token
+                }
+            )
+
+            pages_data = pages_response.json()
+            pages = pages_data.get("data", [])
+
+        for page in pages:
+            facebook_page_id = str(
+                page.get("page_id")
+                or page.get("id")
+                or ""
+            ).strip()
+
+            page_access_token = (
+                page.get("access_token")
+                or user_access_token
+            )
+
+            if not facebook_page_id or not page_access_token:
+                continue
+
+            response = await client.get(
+                f"{META_GRAPH_URL}/{facebook_page_id}",
+                params={
+                    "fields": "instagram_business_account",
+                    "access_token": page_access_token
+                }
+            )
+
+            data = response.json()
+
+            linked_instagram = (
+                data.get("instagram_business_account")
+                or {}
+            )
+
+            linked_instagram_id = str(
+                linked_instagram.get("id") or ""
+            ).strip()
+
+            if linked_instagram_id == str(instagram_id):
+                return {
+                    "facebook_page_id": facebook_page_id,
+                    "page_access_token": page_access_token
+                }
+
+    return None
+
+
+class MetaInstagramDirectSendRequest(BaseModel):
+    instagram_id: str
+    participant_id: str
+    message: str
+
+
+@app.post("/api/meta/instagram/direct/send")
+async def meta_instagram_direct_send(
+    payload: MetaInstagramDirectSendRequest
+):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return {
+            "success": False,
+            "error": "Meta акаунт не підключено."
+        }
+
+    instagram_id = str(
+        payload.instagram_id or ""
+    ).strip()
+
+    participant_id = str(
+        payload.participant_id or ""
+    ).strip()
+
+    message_text = str(
+        payload.message or ""
+    ).strip()
+
+    if not instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    if not participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    if not message_text:
+        return {
+            "success": False,
+            "error": "Повідомлення порожнє."
+        }
+
+    access_data = await get_instagram_page_access_token(
+        instagram_id
+    )
+
+    if not access_data:
+        return {
+            "success": False,
+            "error": (
+                "Не знайдено Facebook Page Access Token "
+                "для цього Instagram акаунта."
+            )
+        }
+
+    page_access_token = access_data.get(
+        "page_access_token"
+    )
+
+    request_body = {
+        "messaging_type": "RESPONSE",
+        "recipient": {
+            "id": participant_id
+        },
+        "message": {
+            "text": message_text
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                f"{META_GRAPH_URL}/{instagram_id}/messages",
+                params={
+                    "access_token": page_access_token
+                },
+                json=request_body
+            )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                "raw": response.text
+            }
+
+        if (
+            response.status_code >= 400
+            or "error" in data
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "Meta не дозволила надіслати "
+                    "Instagram Direct повідомлення."
+                ),
+                "details": data
+            }
+
+        timestamp = int(
+            time.time() * 1000
+        )
+
+        message_id = str(
+            data.get("message_id")
+            or (
+                f"crm-instagram:"
+                f"{instagram_id}:"
+                f"{participant_id}:"
+                f"{timestamp}"
+            )
+        )
+
+        save_meta_message(
+            mid=message_id,
+            platform="instagram",
+            page_id=instagram_id,
+            participant_id=participant_id,
+            direction="out",
+            text=message_text,
+            timestamp=timestamp,
+            message_type="text",
+            attachment_url=None,
+            status="sent",
+            raw_payload={
+                "source": "crm",
+                "meta_response": data
+            }
+        )
+
+        return {
+            "success": True,
+            "message": "Instagram Direct повідомлення надіслано.",
+            "message_id": message_id,
+            "instagram_id": instagram_id,
+            "participant_id": participant_id,
+            "text": message_text
+        }
+
+    except Exception as error:
+        print(
+            "INSTAGRAM DIRECT SEND ERROR:",
+            repr(error)
+        )
+
+        return {
+            "success": False,
+            "error": "Помилка надсилання Instagram Direct.",
+            "details": str(error)
+        }
 
 class MetaDirectSendRequest(BaseModel):
     page_id: str
