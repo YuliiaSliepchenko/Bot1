@@ -57,10 +57,23 @@ DIRECT_UPLOAD_ROOT.mkdir(
     exist_ok=True
 )
 
+DIRECT_FILE_MAX_BYTES = 25 * 1024 * 1024
+
+DIRECT_BLOCKED_EXTENSIONS = {
+    ".exe",
+    ".bat",
+    ".cmd",
+    ".msi",
+    ".sh",
+    ".php",
+    ".js"
+}
+
 DIRECT_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
-    "image/gif": ".gif"
+    "image/gif": ".gif",
+    "image/webp": ".webp"
 }
 
 DIRECT_IMAGE_MAX_BYTES = 8 * 1024 * 1024
@@ -89,6 +102,110 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/drive",
 ]
+
+def get_direct_attachment_type(content_type: str, filename: str = ""):
+    content_type = str(content_type or "").lower()
+    filename = str(filename or "").lower()
+
+    if content_type.startswith("image/"):
+        return "image"
+
+    if content_type.startswith("video/"):
+        return "video"
+
+    if content_type.startswith("audio/"):
+        return "audio"
+
+    return "file"
+
+
+def get_direct_file_extension(filename: str, content_type: str = ""):
+    filename = Path(str(filename or "")).name
+    suffix = Path(filename).suffix.lower()
+
+    if suffix and len(suffix) <= 12:
+        return suffix
+
+    content_type = str(content_type or "").lower()
+
+    guessed = {
+        "application/pdf": ".pdf",
+        "application/zip": ".zip",
+        "application/x-zip-compressed": ".zip",
+        "application/x-rar-compressed": ".rar",
+        "application/x-7z-compressed": ".7z",
+        "text/plain": ".txt",
+        "application/msword": ".doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/vnd.ms-excel": ".xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+        "application/vnd.ms-powerpoint": ".ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx"
+    }.get(content_type)
+
+    return guessed or ".bin"
+
+
+async def save_direct_upload_file(upload: UploadFile):
+    original_name = Path(upload.filename or "file").name
+    content_type = str(upload.content_type or "application/octet-stream").lower()
+
+    extension = get_direct_file_extension(
+        filename=original_name,
+        content_type=content_type
+    )
+
+    if extension in DIRECT_BLOCKED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Цей тип файлу заблоковано з міркувань безпеки."
+        )
+
+    file_bytes = await upload.read()
+
+    if not file_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Файл порожній."
+        )
+
+    if len(file_bytes) > DIRECT_FILE_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="Файл завеликий. Максимальний розмір — 25 МБ."
+        )
+
+    safe_original = safe_download_filename(
+        original_name,
+        f"direct-file{extension}"
+    )
+
+    if "." not in safe_original:
+        safe_original += extension
+
+    stored_filename = f"{uuid4().hex}_{safe_original}"
+    stored_path = DIRECT_UPLOAD_ROOT / stored_filename
+
+    stored_path.write_bytes(file_bytes)
+
+    public_url = (
+        f"{APP_PUBLIC_URL}"
+        f"/api/meta/direct/media/"
+        f"{stored_filename}"
+    )
+
+    return {
+        "original_name": original_name,
+        "stored_filename": stored_filename,
+        "stored_path": stored_path,
+        "url": public_url,
+        "content_type": content_type,
+        "size": len(file_bytes),
+        "attachment_type": get_direct_attachment_type(
+            content_type,
+            original_name
+        )
+    }
 
 META_APP_ID = os.getenv("META_APP_ID", "")
 META_APP_SECRET = os.getenv("META_APP_SECRET", "")
@@ -5150,7 +5267,10 @@ async def meta_instagram_direct_mark_read(
     }
 
 @app.get("/api/meta/direct/media/{filename}")
-async def meta_direct_media(filename: str):
+async def meta_direct_media(
+    filename: str,
+    download: bool = False
+):
     safe_filename = Path(filename).name
 
     if safe_filename != filename:
@@ -5159,10 +5279,7 @@ async def meta_direct_media(filename: str):
             detail="Некоректне ім’я файлу."
         )
 
-    file_path = (
-        DIRECT_UPLOAD_ROOT
-        / safe_filename
-    )
+    file_path = DIRECT_UPLOAD_ROOT / safe_filename
 
     if not file_path.is_file():
         raise HTTPException(
@@ -5170,83 +5287,14 @@ async def meta_direct_media(filename: str):
             detail="Файл не знайдено."
         )
 
+    if download:
+        return FileResponse(
+            file_path,
+            filename=safe_filename,
+            media_type="application/octet-stream"
+        )
+
     return FileResponse(file_path)
-
-async def get_instagram_direct_access_data(
-    instagram_id: str
-):
-    tokens = get_meta_tokens()
-
-    if not tokens:
-        return None
-
-    user_access_token = tokens.get(
-        "access_token"
-    )
-
-    pages = get_meta_pages()
-
-    async with httpx.AsyncClient(timeout=40) as client:
-        if not pages:
-            pages_response = await client.get(
-                f"{META_GRAPH_URL}/me/accounts",
-                params={
-                    "fields": "id,name,access_token,tasks",
-                    "limit": 100,
-                    "access_token": user_access_token
-                }
-            )
-
-            pages_data = pages_response.json()
-            pages = pages_data.get("data", [])
-
-        for page in pages:
-            facebook_page_id = str(
-                page.get("page_id")
-                or page.get("id")
-                or ""
-            ).strip()
-
-            page_access_token = (
-                page.get("access_token")
-                or user_access_token
-            )
-
-            if not facebook_page_id or not page_access_token:
-                continue
-
-            response = await client.get(
-                f"{META_GRAPH_URL}/{facebook_page_id}",
-                params={
-                    "fields": "instagram_business_account",
-                    "access_token": page_access_token
-                }
-            )
-
-            data = response.json()
-
-            linked_instagram = (
-                data.get("instagram_business_account")
-                or {}
-            )
-
-            linked_instagram_id = str(
-                linked_instagram.get("id") or ""
-            ).strip()
-
-            if linked_instagram_id == str(instagram_id):
-                return {
-                    "facebook_page_id": facebook_page_id,
-                    "page_access_token": page_access_token
-                }
-
-    return None
-
-
-class MetaInstagramDirectSendRequest(BaseModel):
-    instagram_id: str
-    participant_id: str
-    message: str
 
 
 @app.post("/api/meta/instagram/direct/send")
@@ -5420,6 +5468,53 @@ class MetaDirectSendRequest(BaseModel):
     page_id: str
     participant_id: str
     message: str
+
+@app.get("/api/meta/instagram/direct/profile-debug")
+async def meta_instagram_direct_profile_debug(
+    instagram_id: str,
+    participant_id: str
+):
+    access_data = await get_instagram_direct_access_data(
+        instagram_id
+    )
+
+    if not access_data:
+        return {
+            "success": False,
+            "error": "Не знайдено access data для Instagram.",
+            "instagram_id": instagram_id,
+            "participant_id": participant_id
+        }
+
+    page_access_token = access_data.get("page_access_token")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(
+            f"{META_GRAPH_URL}/{participant_id}",
+            params={
+                "fields": "id,name,username,profile_pic,profile_picture_url",
+                "access_token": page_access_token
+            }
+        )
+
+    try:
+        data = response.json()
+    except Exception:
+        data = {
+            "raw": response.text
+        }
+
+    return {
+        "success": response.status_code < 400 and "error" not in data,
+        "status_code": response.status_code,
+        "instagram_id": instagram_id,
+        "participant_id": participant_id,
+        "access_data": {
+            "facebook_page_id": access_data.get("facebook_page_id"),
+            "has_page_token": bool(page_access_token)
+        },
+        "meta_response": data
+    }
 
 
 @app.post("/api/meta/direct/send")
