@@ -4489,65 +4489,91 @@ async def get_instagram_participant_profile(
         "avatar": None
     }
 
-    access_data = await get_instagram_page_access_token(
+    access_data = await get_instagram_direct_access_data(
         instagram_id
     )
 
     if not access_data:
+        print(
+            "INSTAGRAM PROFILE NO ACCESS DATA:",
+            {
+                "instagram_id": instagram_id,
+                "participant_id": participant_id
+            }
+        )
         return fallback
 
-    page_access_token = access_data.get(
-        "page_access_token"
-    )
+    page_access_token = access_data.get("page_access_token")
 
     if not page_access_token:
+        print(
+            "INSTAGRAM PROFILE NO PAGE TOKEN:",
+            access_data
+        )
         return fallback
+
+    field_variants = [
+        "name,username,profile_pic",
+        "name,profile_pic"
+    ]
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.get(
-                f"{META_GRAPH_URL}/{participant_id}",
-                params={
-                    "fields": "name,profile_pic",
-                    "access_token": page_access_token
+            for fields in field_variants:
+                response = await client.get(
+                    f"{META_GRAPH_URL}/{participant_id}",
+                    params={
+                        "fields": fields,
+                        "access_token": page_access_token
+                    }
+                )
+
+                try:
+                    data = response.json()
+                except Exception:
+                    data = {
+                        "raw": response.text
+                    }
+
+                if (
+                    response.status_code >= 400
+                    or "error" in data
+                ):
+                    print(
+                        "INSTAGRAM PROFILE ERROR:",
+                        {
+                            "fields": fields,
+                            "status_code": response.status_code,
+                            "data": data
+                        }
+                    )
+                    continue
+
+                username = str(
+                    data.get("username") or ""
+                ).strip()
+
+                name = str(
+                    data.get("name") or ""
+                ).strip()
+
+                display_name = (
+                    f"@{username}"
+                    if username
+                    else name
+                )
+
+                avatar = (
+                    data.get("profile_pic")
+                    or data.get("profile_picture_url")
+                )
+
+                return {
+                    "name": display_name or None,
+                    "avatar": avatar
                 }
-            )
 
-        try:
-            data = response.json()
-        except Exception:
-            data = {
-                "raw": response.text
-            }
-
-        if (
-            response.status_code >= 400
-            or "error" in data
-        ):
-            print(
-                "INSTAGRAM PROFILE ERROR:",
-                data
-            )
-            return fallback
-
-        username = str(
-            data.get("username") or ""
-        ).strip()
-
-        name = str(
-            data.get("name") or ""
-        ).strip()
-
-        display_name = (
-            f"@{username}"
-            if username
-            else name
-        )
-
-        return {
-            "name": display_name or None,
-            "avatar": data.get("profile_pic")
-        }
+        return fallback
 
     except Exception as error:
         print(
@@ -4786,11 +4812,9 @@ async def meta_webhook_receive(payload: dict):
 
                     if direction == "in":
                         if platform == "instagram":
-                            profile = (
-                                await get_instagram_participant_profile(
-                                    page_id,
-                                    participant_id
-                                )
+                            profile = await get_instagram_participant_profile(
+                                page_id,
+                                participant_id
                             )
 
                             participant_name = (
@@ -4798,32 +4822,16 @@ async def meta_webhook_receive(payload: dict):
                                 or ("Instagram клієнт " + participant_id[-6:])
                             )
 
-                            participant_avatar = (
-                                profile.get("avatar")
-                            )
+                            participant_avatar = profile.get("avatar")
 
                         else:
-                            profile = (
-                                await get_meta_participant_profile(
-                                    page_id,
-                                    participant_id
-                                )
+                            profile = await get_meta_participant_profile(
+                                page_id,
+                                participant_id
                             )
 
-                            participant_name = (
-                                profile.get("name")
-                            )
-
-                            participant_avatar = (
-                                profile.get("avatar")
-                            )
-
-                    else:
-                        participant_name = (
-                            "Instagram клієнт "
-                            + participant_id[-6:]
-                        )
-                        participant_avatar = None
+                            participant_name = profile.get("name")
+                            participant_avatar = profile.get("avatar")
 
                     inserted = save_meta_message(
                         mid=mid,
@@ -5164,7 +5172,7 @@ async def meta_direct_media(filename: str):
 
     return FileResponse(file_path)
 
-async def get_instagram_page_access_token(
+async def get_instagram_direct_access_data(
     instagram_id: str
 ):
     tokens = get_meta_tokens()
@@ -5283,7 +5291,7 @@ async def meta_instagram_direct_send(
             "error": "Повідомлення порожнє."
         }
 
-    access_data = await get_instagram_page_access_token(
+    access_data = await get_instagram_direct_access_data(
         instagram_id
     )
 
@@ -5573,13 +5581,8 @@ async def meta_direct_send_image(
     participant_id: str = Form(...),
     image: UploadFile = File(...)
 ):
-    clean_page_id = str(
-        page_id or ""
-    ).strip()
-
-    clean_participant_id = str(
-        participant_id or ""
-    ).strip()
+    clean_page_id = str(page_id or "").strip()
+    clean_participant_id = str(participant_id or "").strip()
 
     if not clean_page_id:
         return {
@@ -5593,21 +5596,13 @@ async def meta_direct_send_image(
             "error": "Не передано participant_id."
         }
 
-    content_type = str(
-        image.content_type or ""
-    ).lower()
-
-    extension = DIRECT_IMAGE_TYPES.get(
-        content_type
-    )
+    content_type = str(image.content_type or "").lower()
+    extension = DIRECT_IMAGE_TYPES.get(content_type)
 
     if not extension:
         return {
             "success": False,
-            "error": (
-                "Підтримуються тільки "
-                "JPG, PNG та GIF."
-            )
+            "error": "Підтримуються тільки JPG, PNG та GIF."
         }
 
     image_bytes = await image.read()
@@ -5621,133 +5616,58 @@ async def meta_direct_send_image(
     if len(image_bytes) > DIRECT_IMAGE_MAX_BYTES:
         return {
             "success": False,
-            "error": (
-                "Фото завелике. "
-                "Максимальний розмір — 8 МБ."
-            )
+            "error": "Фото завелике. Максимальний розмір — 8 МБ."
         }
 
-    page = get_meta_page(
-        clean_page_id
-    )
+    page = get_meta_page(clean_page_id)
 
     if not page:
         return {
             "success": False,
-            "error": (
-                "Facebook-сторінку "
-                "не знайдено в базі."
-            )
+            "error": "Facebook-сторінку не знайдено в базі."
         }
 
-    page_access_token = page.get(
-        "access_token"
-    )
+    page_access_token = page.get("access_token")
 
     if not page_access_token:
         return {
             "success": False,
-            "error": (
-                "У сторінки немає "
-                "Page Access Token."
-            )
+            "error": "У сторінки немає Page Access Token."
         }
 
-    upload_data = {
-        "recipient": json.dumps({
+    stored_filename = f"{uuid4().hex}{extension}"
+    stored_path = DIRECT_UPLOAD_ROOT / stored_filename
+    stored_path.write_bytes(image_bytes)
+
+    attachment_url = (
+        f"{APP_PUBLIC_URL}"
+        f"/api/meta/direct/media/"
+        f"{stored_filename}"
+    )
+
+    request_body = {
+        "messaging_type": "RESPONSE",
+        "recipient": {
             "id": clean_participant_id
-        }),
-        "message": json.dumps({
+        },
+        "message": {
             "attachment": {
                 "type": "image",
                 "payload": {
-                    "is_reusable": False
+                    "url": attachment_url
                 }
             }
-        })
-    }
-
-    upload_files = {
-        "filedata": (
-            image.filename
-            or f"image{extension}",
-            image_bytes,
-            content_type
-        )
+        }
     }
 
     try:
-        async with httpx.AsyncClient(
-            timeout=60
-        ) as client:
-            upload_response = await client.post(
-                (
-                    f"{META_GRAPH_URL}/"
-                    f"{clean_page_id}/"
-                    "message_attachments"
-                ),
-                params={
-                    "access_token":
-                        page_access_token
-                },
-                data=upload_data,
-                files=upload_files
-            )
-
-            try:
-                upload_result = (
-                    upload_response.json()
-                )
-            except Exception:
-                upload_result = {
-                    "raw": upload_response.text
-                }
-
-            attachment_id = (
-                upload_result.get(
-                    "attachment_id"
-                )
-            )
-
-            if (
-                upload_response.status_code >= 400
-                or not attachment_id
-                or "error" in upload_result
-            ):
-                return {
-                    "success": False,
-                    "error": (
-                        "Meta не прийняла "
-                        "зображення."
-                    ),
-                    "details": upload_result
-                }
-
+        async with httpx.AsyncClient(timeout=60) as client:
             send_response = await client.post(
-                (
-                    f"{META_GRAPH_URL}/"
-                    f"{clean_page_id}/messages"
-                ),
+                f"{META_GRAPH_URL}/{clean_page_id}/messages",
                 params={
-                    "access_token":
-                        page_access_token
+                    "access_token": page_access_token
                 },
-                json={
-                    "messaging_type": "RESPONSE",
-                    "recipient": {
-                        "id":
-                            clean_participant_id
-                    },
-                    "message": {
-                        "attachment": {
-                            "type": "image",
-                            "payload": {
-                                "attachment_id":
-                                    attachment_id
-                            }
-                        }
-                    }
-                }
+                json=request_body
             )
 
         try:
@@ -5764,34 +5684,13 @@ async def meta_direct_send_image(
             return {
                 "success": False,
                 "error": (
-                    "Meta не дозволила "
-                    "надіслати фото."
+                    send_result.get("error", {}).get("message")
+                    or "Meta не дозволила надіслати фото."
                 ),
                 "details": send_result
             }
 
-        stored_filename = (
-            f"{uuid4().hex}{extension}"
-        )
-
-        stored_path = (
-            DIRECT_UPLOAD_ROOT
-            / stored_filename
-        )
-
-        stored_path.write_bytes(
-            image_bytes
-        )
-
-        attachment_url = (
-            f"{APP_PUBLIC_URL}"
-            f"/api/meta/direct/media/"
-            f"{stored_filename}"
-        )
-
-        timestamp = int(
-            time.time() * 1000
-        )
+        timestamp = int(time.time() * 1000)
 
         message_id = str(
             send_result.get("message_id")
@@ -5807,9 +5706,7 @@ async def meta_direct_send_image(
             mid=message_id,
             platform="facebook",
             page_id=clean_page_id,
-            participant_id=(
-                clean_participant_id
-            ),
+            participant_id=clean_participant_id,
             direction="out",
             text="📷 Фото",
             timestamp=timestamp,
@@ -5818,21 +5715,18 @@ async def meta_direct_send_image(
             status="sent",
             raw_payload={
                 "source": "crm",
-                "attachment_id":
-                    attachment_id,
-                "meta_response":
-                    send_result
-            }
+                "attachment_url": attachment_url,
+                "meta_response": send_result
+            },
+            participant_name=None,
+            participant_avatar=None
         )
 
         return {
             "success": True,
             "message": "Фото надіслано.",
             "message_id": message_id,
-            "attachment_id":
-                attachment_id,
-            "attachment_url":
-                attachment_url
+            "attachment_url": attachment_url
         }
 
     except Exception as error:
@@ -5843,9 +5737,7 @@ async def meta_direct_send_image(
 
         return {
             "success": False,
-            "error": (
-                "Помилка надсилання фото."
-            ),
+            "error": "Помилка надсилання фото.",
             "details": str(error)
         }
 
@@ -5903,7 +5795,7 @@ async def meta_instagram_direct_send_image(
             "error": "Фото завелике. Максимальний розмір — 8 МБ."
         }
 
-    access_data = await get_instagram_page_access_token(
+    access_data = await get_instagram_direct_access_data(
         clean_instagram_id
     )
 
