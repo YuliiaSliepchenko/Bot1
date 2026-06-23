@@ -603,7 +603,8 @@ def mark_meta_messages_delivered(
     page_id,
     participant_id,
     watermark=0,
-    mids=None
+    mids=None,
+    platform="facebook"
 ):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -622,13 +623,14 @@ def mark_meta_messages_delivered(
         cur.execute(f"""
         UPDATE meta_messages
         SET status = 'delivered'
-        WHERE platform = 'facebook'
+        WHERE platform = ?
           AND page_id = ?
           AND participant_id = ?
           AND direction = 'out'
           AND mid IN ({placeholders})
           AND status != 'read'
         """, [
+            platform,
             str(page_id),
             str(participant_id),
             *clean_mids
@@ -638,13 +640,14 @@ def mark_meta_messages_delivered(
         cur.execute("""
         UPDATE meta_messages
         SET status = 'delivered'
-        WHERE platform = 'facebook'
+        WHERE platform = ?
           AND page_id = ?
           AND participant_id = ?
           AND direction = 'out'
           AND timestamp <= ?
           AND status != 'read'
         """, (
+            platform,
             str(page_id),
             str(participant_id),
             int(watermark)
@@ -657,7 +660,8 @@ def mark_meta_messages_delivered(
 def mark_meta_messages_read(
     page_id,
     participant_id,
-    watermark
+    watermark,
+    platform="facebook"
 ):
     clean_watermark = int(
         watermark or 0
@@ -672,12 +676,13 @@ def mark_meta_messages_read(
     cur.execute("""
     UPDATE meta_messages
     SET status = 'read'
-    WHERE platform = 'facebook'
+    WHERE platform = ?
       AND page_id = ?
       AND participant_id = ?
       AND direction = 'out'
       AND timestamp <= ?
     """, (
+        platform,
         str(page_id),
         str(participant_id),
         clean_watermark

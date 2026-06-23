@@ -4540,7 +4540,7 @@ async def meta_webhook_receive(payload: dict):
 
                         participant_id = sender_id
 
-                        if platform == "facebook" and page_id and participant_id:
+                        if page_id and participant_id:
                             mark_meta_messages_delivered(
                                 page_id=page_id,
                                 participant_id=participant_id,
@@ -4551,7 +4551,8 @@ async def meta_webhook_receive(payload: dict):
                                 mids=delivery.get(
                                     "mids",
                                     []
-                                )
+                                ),
+                                platform=platform
                             )
 
                         print(
@@ -4578,14 +4579,16 @@ async def meta_webhook_receive(payload: dict):
 
                         participant_id = sender_id
 
-                        if platform == "facebook" and page_id and participant_id:
+                        if page_id and participant_id:
                             mark_meta_messages_read(
                                 page_id=page_id,
                                 participant_id=participant_id,
-                                watermark=read_event.get(
-                                    "watermark",
-                                    0
-                                )
+                                watermark=(
+                                    read_event.get("watermark")
+                                    or event.get("timestamp")
+                                    or 0
+                                ),
+                                platform=platform
                             )
 
                         print(
