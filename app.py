@@ -4508,7 +4508,7 @@ async def get_instagram_participant_profile(
             response = await client.get(
                 f"{META_GRAPH_URL}/{participant_id}",
                 params={
-                    "fields": "name,username,profile_pic",
+                    "fields": "name,profile_pic",
                     "access_token": page_access_token
                 }
             )
@@ -5886,10 +5886,7 @@ async def meta_instagram_direct_send_image(
     if not extension:
         return {
             "success": False,
-            "error": (
-                "Підтримуються тільки "
-                "JPG, PNG та GIF."
-            )
+            "error": "Підтримуються тільки JPG, PNG та GIF."
         }
 
     image_bytes = await image.read()
@@ -5903,10 +5900,7 @@ async def meta_instagram_direct_send_image(
     if len(image_bytes) > DIRECT_IMAGE_MAX_BYTES:
         return {
             "success": False,
-            "error": (
-                "Фото завелике. "
-                "Максимальний розмір — 8 МБ."
-            )
+            "error": "Фото завелике. Максимальний розмір — 8 МБ."
         }
 
     access_data = await get_instagram_page_access_token(
@@ -5940,132 +5934,62 @@ async def meta_instagram_direct_send_image(
             "details": access_data
         }
 
-    upload_data = {
-        "recipient": json.dumps({
+    stored_filename = f"{uuid4().hex}{extension}"
+    stored_path = DIRECT_UPLOAD_ROOT / stored_filename
+    stored_path.write_bytes(image_bytes)
+
+    attachment_url = (
+        f"{APP_PUBLIC_URL}"
+        f"/api/meta/direct/media/"
+        f"{stored_filename}"
+    )
+
+    request_body = {
+        "messaging_type": "RESPONSE",
+        "recipient": {
             "id": clean_participant_id
-        }),
-        "message": json.dumps({
+        },
+        "message": {
             "attachment": {
                 "type": "image",
                 "payload": {
-                    "is_reusable": False
+                    "url": attachment_url
                 }
             }
-        })
-    }
-
-    upload_files = {
-        "filedata": (
-            image.filename
-            or f"image{extension}",
-            image_bytes,
-            content_type
-        )
+        }
     }
 
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            upload_response = await client.post(
-                (
-                    f"{META_GRAPH_URL}/"
-                    f"{facebook_page_id}/"
-                    "message_attachments"
-                ),
-                params={
-                    "access_token": page_access_token
-                },
-                data=upload_data,
-                files=upload_files
-            )
-
-            try:
-                upload_result = upload_response.json()
-            except Exception:
-                upload_result = {
-                    "raw": upload_response.text
-                }
-
-            attachment_id = upload_result.get(
-                "attachment_id"
-            )
-
-            if (
-                upload_response.status_code >= 400
-                or not attachment_id
-                or "error" in upload_result
-            ):
-                return {
-                    "success": False,
-                    "error": "Meta не прийняла Instagram-зображення.",
-                    "details": upload_result
-                }
-
-            send_response = await client.post(
+            response = await client.post(
                 f"{META_GRAPH_URL}/{facebook_page_id}/messages",
                 params={
                     "access_token": page_access_token
                 },
-                json={
-                    "messaging_type": "RESPONSE",
-                    "recipient": {
-                        "id": clean_participant_id
-                    },
-                    "message": {
-                        "attachment": {
-                            "type": "image",
-                            "payload": {
-                                "attachment_id": attachment_id
-                            }
-                        }
-                    }
-                }
+                json=request_body
             )
 
         try:
-            send_result = send_response.json()
+            data = response.json()
         except Exception:
-            send_result = {
-                "raw": send_response.text
+            data = {
+                "raw": response.text
             }
 
-        if (
-            send_response.status_code >= 400
-            or "error" in send_result
-        ):
+        if response.status_code >= 400 or "error" in data:
             return {
                 "success": False,
                 "error": (
-                    "Meta не дозволила надіслати "
-                    "фото в Instagram Direct."
+                    data.get("error", {}).get("message")
+                    or "Meta не дозволила надіслати фото в Instagram Direct."
                 ),
-                "details": send_result
+                "details": data
             }
 
-        stored_filename = (
-            f"{uuid4().hex}{extension}"
-        )
-
-        stored_path = (
-            DIRECT_UPLOAD_ROOT
-            / stored_filename
-        )
-
-        stored_path.write_bytes(
-            image_bytes
-        )
-
-        attachment_url = (
-            f"{APP_PUBLIC_URL}"
-            f"/api/meta/direct/media/"
-            f"{stored_filename}"
-        )
-
-        timestamp = int(
-            time.time() * 1000
-        )
+        timestamp = int(time.time() * 1000)
 
         message_id = str(
-            send_result.get("message_id")
+            data.get("message_id")
             or (
                 f"crm-instagram-image:"
                 f"{clean_instagram_id}:"
@@ -6087,10 +6011,10 @@ async def meta_instagram_direct_send_image(
             status="sent",
             raw_payload={
                 "source": "crm",
-                "attachment_id": attachment_id,
                 "instagram_id": clean_instagram_id,
                 "facebook_page_id": facebook_page_id,
-                "meta_response": send_result
+                "attachment_url": attachment_url,
+                "meta_response": data
             }
         )
 
@@ -6098,7 +6022,8 @@ async def meta_instagram_direct_send_image(
             "success": True,
             "message": "Фото в Instagram Direct надіслано.",
             "message_id": message_id,
-            "attachment_id": attachment_id,
+            "instagram_id": clean_instagram_id,
+            "participant_id": clean_participant_id,
             "attachment_url": attachment_url
         }
 
