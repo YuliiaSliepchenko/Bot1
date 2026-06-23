@@ -5540,7 +5540,7 @@ async def meta_instagram_direct_profile_debug(
         response = await client.get(
             f"{META_GRAPH_URL}/{participant_id}",
             params={
-                "fields": "id,name,username,profile_pic,profile_picture_url",
+                "fields": "id,name,username,profile_pic",
                 "access_token": page_access_token
             }
         )
@@ -6071,6 +6071,349 @@ async def meta_instagram_direct_send_image(
         return {
             "success": False,
             "error": "Помилка надсилання фото в Instagram Direct.",
+            "details": str(error)
+        }
+
+@app.post("/api/meta/direct/send-file")
+async def meta_direct_send_file(
+    page_id: str = Form(...),
+    participant_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    clean_page_id = str(page_id or "").strip()
+    clean_participant_id = str(participant_id or "").strip()
+
+    if not clean_page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id."
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    try:
+        saved_file = await save_direct_upload_file(file)
+    except HTTPException as error:
+        return {
+            "success": False,
+            "error": error.detail
+        }
+
+    page = get_meta_page(clean_page_id)
+
+    if not page:
+        return {
+            "success": False,
+            "error": "Facebook-сторінку не знайдено в базі."
+        }
+
+    page_access_token = page.get("access_token")
+
+    if not page_access_token:
+        return {
+            "success": False,
+            "error": "У сторінки немає Page Access Token."
+        }
+
+    attachment_type = saved_file.get("attachment_type") or "file"
+
+    if attachment_type not in ["image", "video", "audio", "file"]:
+        attachment_type = "file"
+
+    request_body = {
+        "messaging_type": "RESPONSE",
+        "recipient": {
+            "id": clean_participant_id
+        },
+        "message": {
+            "attachment": {
+                "type": attachment_type,
+                "payload": {
+                    "url": saved_file["url"]
+                }
+            }
+        }
+    }
+
+    timestamp = int(time.time() * 1000)
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            send_response = await client.post(
+                f"{META_GRAPH_URL}/{clean_page_id}/messages",
+                params={
+                    "access_token": page_access_token
+                },
+                json=request_body
+            )
+
+        try:
+            send_result = send_response.json()
+        except Exception:
+            send_result = {
+                "raw": send_response.text
+            }
+
+        sent_to_meta = (
+            send_response.status_code < 400
+            and "error" not in send_result
+        )
+
+        message_id = str(
+            send_result.get("message_id")
+            or (
+                f"crm-file:"
+                f"{clean_page_id}:"
+                f"{clean_participant_id}:"
+                f"{timestamp}"
+            )
+        )
+
+        save_meta_message(
+            mid=message_id,
+            platform="facebook",
+            page_id=clean_page_id,
+            participant_id=clean_participant_id,
+            direction="out",
+            text=f"📎 {saved_file['original_name']}",
+            timestamp=timestamp,
+            message_type=attachment_type,
+            attachment_url=saved_file["url"],
+            status="sent" if sent_to_meta else "local",
+            raw_payload={
+                "source": "crm",
+                "file": {
+                    "name": saved_file["original_name"],
+                    "url": saved_file["url"],
+                    "content_type": saved_file["content_type"],
+                    "size": saved_file["size"],
+                    "attachment_type": attachment_type
+                },
+                "meta_response": send_result
+            }
+        )
+
+        if not sent_to_meta:
+            return {
+                "success": True,
+                "sent_to_meta": False,
+                "warning": (
+                    "Файл збережено в CRM, але Meta не прийняла "
+                    "його для надсилання клієнту."
+                ),
+                "details": send_result,
+                "file": {
+                    "name": saved_file["original_name"],
+                    "url": saved_file["url"],
+                    "download_url": saved_file["url"] + "?download=1"
+                }
+            }
+
+        return {
+            "success": True,
+            "sent_to_meta": True,
+            "message": "Файл надіслано.",
+            "message_id": message_id,
+            "file": {
+                "name": saved_file["original_name"],
+                "url": saved_file["url"],
+                "download_url": saved_file["url"] + "?download=1"
+            }
+        }
+
+    except Exception as error:
+        print(
+            "META DIRECT FILE ERROR:",
+            repr(error)
+        )
+
+        return {
+            "success": False,
+            "error": "Помилка надсилання файлу.",
+            "details": str(error)
+        }
+
+@app.post("/api/meta/instagram/direct/send-file")
+async def meta_instagram_direct_send_file(
+    instagram_id: str = Form(...),
+    participant_id: str = Form(...),
+    file: UploadFile = File(...)
+):
+    clean_instagram_id = str(instagram_id or "").strip()
+    clean_participant_id = str(participant_id or "").strip()
+
+    if not clean_instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    try:
+        saved_file = await save_direct_upload_file(file)
+    except HTTPException as error:
+        return {
+            "success": False,
+            "error": error.detail
+        }
+
+    access_data = await get_instagram_direct_access_data(
+        clean_instagram_id
+    )
+
+    if not access_data:
+        return {
+            "success": False,
+            "error": (
+                "Не знайдено Facebook Page Access Token "
+                "для цього Instagram акаунта."
+            )
+        }
+
+    page_access_token = access_data.get("page_access_token")
+
+    facebook_page_id = str(
+        access_data.get("facebook_page_id") or ""
+    ).strip()
+
+    if not facebook_page_id:
+        return {
+            "success": False,
+            "error": (
+                "Не знайдено Facebook Page ID "
+                "для цього Instagram акаунта."
+            ),
+            "details": access_data
+        }
+
+    attachment_type = saved_file.get("attachment_type") or "file"
+
+    if attachment_type not in ["image", "video", "audio", "file"]:
+        attachment_type = "file"
+
+    request_body = {
+        "messaging_type": "RESPONSE",
+        "recipient": {
+            "id": clean_participant_id
+        },
+        "message": {
+            "attachment": {
+                "type": attachment_type,
+                "payload": {
+                    "url": saved_file["url"]
+                }
+            }
+        }
+    }
+
+    timestamp = int(time.time() * 1000)
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f"{META_GRAPH_URL}/{facebook_page_id}/messages",
+                params={
+                    "access_token": page_access_token
+                },
+                json=request_body
+            )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                "raw": response.text
+            }
+
+        sent_to_meta = (
+            response.status_code < 400
+            and "error" not in data
+        )
+
+        message_id = str(
+            data.get("message_id")
+            or (
+                f"crm-instagram-file:"
+                f"{clean_instagram_id}:"
+                f"{clean_participant_id}:"
+                f"{timestamp}"
+            )
+        )
+
+        save_meta_message(
+            mid=message_id,
+            platform="instagram",
+            page_id=clean_instagram_id,
+            participant_id=clean_participant_id,
+            direction="out",
+            text=f"📎 {saved_file['original_name']}",
+            timestamp=timestamp,
+            message_type=attachment_type,
+            attachment_url=saved_file["url"],
+            status="sent" if sent_to_meta else "local",
+            raw_payload={
+                "source": "crm",
+                "instagram_id": clean_instagram_id,
+                "facebook_page_id": facebook_page_id,
+                "file": {
+                    "name": saved_file["original_name"],
+                    "url": saved_file["url"],
+                    "content_type": saved_file["content_type"],
+                    "size": saved_file["size"],
+                    "attachment_type": attachment_type
+                },
+                "meta_response": data
+            }
+        )
+
+        if not sent_to_meta:
+            return {
+                "success": True,
+                "sent_to_meta": False,
+                "warning": (
+                    "Файл збережено в CRM, але Meta не прийняла "
+                    "цей тип файлу для Instagram Direct."
+                ),
+                "details": data,
+                "file": {
+                    "name": saved_file["original_name"],
+                    "url": saved_file["url"],
+                    "download_url": saved_file["url"] + "?download=1"
+                }
+            }
+
+        return {
+            "success": True,
+            "sent_to_meta": True,
+            "message": "Файл в Instagram Direct надіслано.",
+            "message_id": message_id,
+            "instagram_id": clean_instagram_id,
+            "participant_id": clean_participant_id,
+            "file": {
+                "name": saved_file["original_name"],
+                "url": saved_file["url"],
+                "download_url": saved_file["url"] + "?download=1"
+            }
+        }
+
+    except Exception as error:
+        print(
+            "INSTAGRAM DIRECT FILE ERROR:",
+            repr(error)
+        )
+
+        return {
+            "success": False,
+            "error": "Помилка надсилання файлу в Instagram Direct.",
             "details": str(error)
         }
 
