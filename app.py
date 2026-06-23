@@ -4480,6 +4480,82 @@ async def get_meta_participant_profile(
         )
         return {}
 
+async def get_instagram_participant_profile(
+    instagram_id: str,
+    participant_id: str
+):
+    fallback = {
+        "name": None,
+        "avatar": None
+    }
+
+    access_data = await get_instagram_page_access_token(
+        instagram_id
+    )
+
+    if not access_data:
+        return fallback
+
+    page_access_token = access_data.get(
+        "page_access_token"
+    )
+
+    if not page_access_token:
+        return fallback
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(
+                f"{META_GRAPH_URL}/{participant_id}",
+                params={
+                    "fields": "name,username,profile_pic",
+                    "access_token": page_access_token
+                }
+            )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = {
+                "raw": response.text
+            }
+
+        if (
+            response.status_code >= 400
+            or "error" in data
+        ):
+            print(
+                "INSTAGRAM PROFILE ERROR:",
+                data
+            )
+            return fallback
+
+        username = str(
+            data.get("username") or ""
+        ).strip()
+
+        name = str(
+            data.get("name") or ""
+        ).strip()
+
+        display_name = (
+            f"@{username}"
+            if username
+            else name
+        )
+
+        return {
+            "name": display_name or None,
+            "avatar": data.get("profile_pic")
+        }
+
+    except Exception as error:
+        print(
+            "INSTAGRAM PROFILE EXCEPTION:",
+            repr(error)
+        )
+        return fallback
+
 
 @app.post("/api/meta/webhook")
 async def meta_webhook_receive(payload: dict):
@@ -4709,7 +4785,24 @@ async def meta_webhook_receive(payload: dict):
                     participant_avatar = None
 
                     if direction == "in":
-                        if platform == "facebook":
+                        if platform == "instagram":
+                            profile = (
+                                await get_instagram_participant_profile(
+                                    page_id,
+                                    participant_id
+                                )
+                            )
+
+                            participant_name = (
+                                profile.get("name")
+                                or ("Instagram клієнт " + participant_id[-6:])
+                            )
+
+                            participant_avatar = (
+                                profile.get("avatar")
+                            )
+
+                        else:
                             profile = (
                                 await get_meta_participant_profile(
                                     page_id,
@@ -5753,6 +5846,271 @@ async def meta_direct_send_image(
             "error": (
                 "Помилка надсилання фото."
             ),
+            "details": str(error)
+        }
+
+@app.post("/api/meta/instagram/direct/send-image")
+async def meta_instagram_direct_send_image(
+    instagram_id: str = Form(...),
+    participant_id: str = Form(...),
+    image: UploadFile = File(...)
+):
+    clean_instagram_id = str(
+        instagram_id or ""
+    ).strip()
+
+    clean_participant_id = str(
+        participant_id or ""
+    ).strip()
+
+    if not clean_instagram_id:
+        return {
+            "success": False,
+            "error": "Не передано instagram_id."
+        }
+
+    if not clean_participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    content_type = str(
+        image.content_type or ""
+    ).lower()
+
+    extension = DIRECT_IMAGE_TYPES.get(
+        content_type
+    )
+
+    if not extension:
+        return {
+            "success": False,
+            "error": (
+                "Підтримуються тільки "
+                "JPG, PNG та GIF."
+            )
+        }
+
+    image_bytes = await image.read()
+
+    if not image_bytes:
+        return {
+            "success": False,
+            "error": "Файл порожній."
+        }
+
+    if len(image_bytes) > DIRECT_IMAGE_MAX_BYTES:
+        return {
+            "success": False,
+            "error": (
+                "Фото завелике. "
+                "Максимальний розмір — 8 МБ."
+            )
+        }
+
+    access_data = await get_instagram_page_access_token(
+        clean_instagram_id
+    )
+
+    if not access_data:
+        return {
+            "success": False,
+            "error": (
+                "Не знайдено Facebook Page Access Token "
+                "для цього Instagram акаунта."
+            )
+        }
+
+    page_access_token = access_data.get(
+        "page_access_token"
+    )
+
+    facebook_page_id = str(
+        access_data.get("facebook_page_id") or ""
+    ).strip()
+
+    if not facebook_page_id:
+        return {
+            "success": False,
+            "error": (
+                "Не знайдено Facebook Page ID "
+                "для цього Instagram акаунта."
+            ),
+            "details": access_data
+        }
+
+    upload_data = {
+        "recipient": json.dumps({
+            "id": clean_participant_id
+        }),
+        "message": json.dumps({
+            "attachment": {
+                "type": "image",
+                "payload": {
+                    "is_reusable": False
+                }
+            }
+        })
+    }
+
+    upload_files = {
+        "filedata": (
+            image.filename
+            or f"image{extension}",
+            image_bytes,
+            content_type
+        )
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            upload_response = await client.post(
+                (
+                    f"{META_GRAPH_URL}/"
+                    f"{facebook_page_id}/"
+                    "message_attachments"
+                ),
+                params={
+                    "access_token": page_access_token
+                },
+                data=upload_data,
+                files=upload_files
+            )
+
+            try:
+                upload_result = upload_response.json()
+            except Exception:
+                upload_result = {
+                    "raw": upload_response.text
+                }
+
+            attachment_id = upload_result.get(
+                "attachment_id"
+            )
+
+            if (
+                upload_response.status_code >= 400
+                or not attachment_id
+                or "error" in upload_result
+            ):
+                return {
+                    "success": False,
+                    "error": "Meta не прийняла Instagram-зображення.",
+                    "details": upload_result
+                }
+
+            send_response = await client.post(
+                f"{META_GRAPH_URL}/{facebook_page_id}/messages",
+                params={
+                    "access_token": page_access_token
+                },
+                json={
+                    "messaging_type": "RESPONSE",
+                    "recipient": {
+                        "id": clean_participant_id
+                    },
+                    "message": {
+                        "attachment": {
+                            "type": "image",
+                            "payload": {
+                                "attachment_id": attachment_id
+                            }
+                        }
+                    }
+                }
+            )
+
+        try:
+            send_result = send_response.json()
+        except Exception:
+            send_result = {
+                "raw": send_response.text
+            }
+
+        if (
+            send_response.status_code >= 400
+            or "error" in send_result
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "Meta не дозволила надіслати "
+                    "фото в Instagram Direct."
+                ),
+                "details": send_result
+            }
+
+        stored_filename = (
+            f"{uuid4().hex}{extension}"
+        )
+
+        stored_path = (
+            DIRECT_UPLOAD_ROOT
+            / stored_filename
+        )
+
+        stored_path.write_bytes(
+            image_bytes
+        )
+
+        attachment_url = (
+            f"{APP_PUBLIC_URL}"
+            f"/api/meta/direct/media/"
+            f"{stored_filename}"
+        )
+
+        timestamp = int(
+            time.time() * 1000
+        )
+
+        message_id = str(
+            send_result.get("message_id")
+            or (
+                f"crm-instagram-image:"
+                f"{clean_instagram_id}:"
+                f"{clean_participant_id}:"
+                f"{timestamp}"
+            )
+        )
+
+        save_meta_message(
+            mid=message_id,
+            platform="instagram",
+            page_id=clean_instagram_id,
+            participant_id=clean_participant_id,
+            direction="out",
+            text="📷 Фото",
+            timestamp=timestamp,
+            message_type="image",
+            attachment_url=attachment_url,
+            status="sent",
+            raw_payload={
+                "source": "crm",
+                "attachment_id": attachment_id,
+                "instagram_id": clean_instagram_id,
+                "facebook_page_id": facebook_page_id,
+                "meta_response": send_result
+            }
+        )
+
+        return {
+            "success": True,
+            "message": "Фото в Instagram Direct надіслано.",
+            "message_id": message_id,
+            "attachment_id": attachment_id,
+            "attachment_url": attachment_url
+        }
+
+    except Exception as error:
+        print(
+            "INSTAGRAM DIRECT IMAGE ERROR:",
+            repr(error)
+        )
+
+        return {
+            "success": False,
+            "error": "Помилка надсилання фото в Instagram Direct.",
             "details": str(error)
         }
 
