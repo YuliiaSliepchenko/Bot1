@@ -5296,6 +5296,54 @@ async def meta_direct_media(
 
     return FileResponse(file_path)
 
+class MetaInstagramDirectSendRequest(BaseModel):
+    instagram_id: str
+    participant_id: str
+    message: str
+
+
+async def get_instagram_direct_access_data(instagram_id: str):
+    tokens = get_meta_tokens()
+
+    if not tokens:
+        return None
+
+    user_access_token = tokens.get("access_token")
+
+    if not user_access_token:
+        return None
+
+    async with httpx.AsyncClient(timeout=40) as client:
+        (
+            page_access_token,
+            facebook_page,
+            token_error
+        ) = await get_instagram_page_access_token(
+            client=client,
+            instagram_id=instagram_id,
+            user_access_token=user_access_token
+        )
+
+    if not page_access_token or not facebook_page:
+        print(
+            "INSTAGRAM DIRECT ACCESS ERROR:",
+            token_error
+        )
+        return None
+
+    facebook_page_id = str(
+        facebook_page.get("id") or ""
+    ).strip()
+
+    if not facebook_page_id:
+        return None
+
+    return {
+        "facebook_page_id": facebook_page_id,
+        "facebook_page_name": facebook_page.get("name"),
+        "page_access_token": page_access_token
+    }
+
 
 @app.post("/api/meta/instagram/direct/send")
 async def meta_instagram_direct_send(
