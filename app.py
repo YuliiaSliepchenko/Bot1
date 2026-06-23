@@ -4818,12 +4818,12 @@ async def meta_webhook_receive(payload: dict):
                                 profile.get("avatar")
                             )
 
-                        else:
-                            participant_name = (
-                                "Instagram клієнт "
-                                + participant_id[-6:]
-                            )
-                            participant_avatar = None
+                    else:
+                        participant_name = (
+                            "Instagram клієнт "
+                            + participant_id[-6:]
+                        )
+                        participant_avatar = None
 
                     inserted = save_meta_message(
                         mid=mid,
