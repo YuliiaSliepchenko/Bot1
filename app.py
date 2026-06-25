@@ -5538,17 +5538,17 @@ async def meta_instagram_direct_send(
             "details": access_data
         }
 
-request_body, policy_error = build_meta_send_request_body(
-    platform="instagram",
-    page_id=instagram_id,
-    participant_id=participant_id,
-    message_payload={
-        "text": message_text
-    }
-)
+    request_body, policy_error = build_meta_send_request_body(
+        platform="instagram",
+        page_id=instagram_id,
+        participant_id=participant_id,
+        message_payload={
+            "text": message_text
+        }
+    )
 
-if policy_error:
-    return policy_error
+    if policy_error:
+        return policy_error
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -5747,17 +5747,17 @@ async def meta_direct_send(
             "error": "У сторінки немає Page Access Token."
         }
 
-request_body, policy_error = build_meta_send_request_body(
-    platform="facebook",
-    page_id=page_id,
-    participant_id=participant_id,
-    message_payload={
-        "text": message_text
-    }
-)
+    request_body, policy_error = build_meta_send_request_body(
+        platform="facebook",
+        page_id=page_id,
+        participant_id=participant_id,
+        message_payload={
+            "text": message_text
+        }
+    )
 
-if policy_error:
-    return policy_error
+    if policy_error:
+        return policy_error
 
     try:
         async with httpx.AsyncClient(
