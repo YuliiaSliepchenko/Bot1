@@ -6246,7 +6246,7 @@ async def meta_direct_send_file(
 
         if not sent_to_meta:
             return {
-                "success": True,
+                "success": False,
                 "sent_to_meta": False,
                 "warning": (
                     "Файл збережено в CRM, але Meta не прийняла "
