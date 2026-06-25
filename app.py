@@ -37,6 +37,7 @@ from db import (
     get_meta_page,
     save_meta_message,
     get_meta_conversations,
+    get_meta_conversation,
     get_meta_messages,
     mark_meta_conversation_read,
     mark_meta_messages_delivered,
@@ -218,6 +219,71 @@ META_VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "itenai_meta_verify_2026")
 
 META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v25.0")
 META_GRAPH_URL = f"https://graph.facebook.com/{META_GRAPH_VERSION}"
+
+def build_meta_send_request_body(
+    platform: str,
+    page_id: str,
+    participant_id: str,
+    message_payload: dict
+):
+    conversation = get_meta_conversation(
+        page_id=page_id,
+        participant_id=participant_id,
+        platform=platform
+    )
+
+    if not conversation:
+        return None, {
+            "success": False,
+            "error": (
+                "Діалог не знайдено в CRM. "
+                "Спочатку клієнт має написати повідомлення."
+            )
+        }
+
+    last_message_at = int(
+        conversation.get("last_message_at") or 0
+    )
+
+    if last_message_at <= 0:
+        return None, {
+            "success": False,
+            "error": (
+                "Немає дати останнього повідомлення клієнта. "
+                "Попросіть клієнта написати ще раз."
+            )
+        }
+
+    now_ms = int(time.time() * 1000)
+    age_ms = now_ms - last_message_at
+
+    day_1_ms = 24 * 60 * 60 * 1000
+    day_7_ms = 7 * 24 * 60 * 60 * 1000
+
+    request_body = {
+        "recipient": {
+            "id": participant_id
+        },
+        "message": message_payload
+    }
+
+    if age_ms <= day_1_ms:
+        request_body["messaging_type"] = "RESPONSE"
+        return request_body, None
+
+    if age_ms <= day_7_ms:
+        request_body["messaging_type"] = "MESSAGE_TAG"
+        request_body["tag"] = "HUMAN_AGENT"
+        return request_body, None
+
+    return None, {
+        "success": False,
+        "error": (
+            "Вікно відповіді Meta закрите. "
+            "Клієнт має написати першим, після цього знову можна буде "
+            "відправляти повідомлення, фото та файли."
+        )
+    }
 
 META_SCOPES = [
     "public_profile",
@@ -5472,15 +5538,17 @@ async def meta_instagram_direct_send(
             "details": access_data
         }
 
-    request_body = {
-        "messaging_type": "RESPONSE",
-        "recipient": {
-            "id": participant_id
-        },
-        "message": {
-            "text": message_text
-        }
+request_body, policy_error = build_meta_send_request_body(
+    platform="instagram",
+    page_id=instagram_id,
+    participant_id=participant_id,
+    message_payload={
+        "text": message_text
     }
+)
+
+if policy_error:
+    return policy_error
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -5679,15 +5747,17 @@ async def meta_direct_send(
             "error": "У сторінки немає Page Access Token."
         }
 
-    request_body = {
-        "messaging_type": "RESPONSE",
-        "recipient": {
-            "id": participant_id
-        },
-        "message": {
-            "text": message_text
-        }
+request_body, policy_error = build_meta_send_request_body(
+    platform="facebook",
+    page_id=page_id,
+    participant_id=participant_id,
+    message_payload={
+        "text": message_text
     }
+)
+
+if policy_error:
+    return policy_error
 
     try:
         async with httpx.AsyncClient(

@@ -522,6 +522,52 @@ def get_meta_conversations(page_id=None, platform="facebook", limit=100):
         for row in rows
     ]
 
+def get_meta_conversation(
+    page_id,
+    participant_id,
+    platform="facebook"
+):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT
+        platform,
+        page_id,
+        participant_id,
+        participant_name,
+        participant_avatar,
+        last_message,
+        last_message_at,
+        unread_count
+    FROM meta_conversations
+    WHERE platform = ?
+      AND page_id = ?
+      AND participant_id = ?
+    LIMIT 1
+    """, (
+        platform,
+        str(page_id),
+        str(participant_id)
+    ))
+
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "platform": row[0],
+        "page_id": row[1],
+        "participant_id": row[2],
+        "participant_name": row[3],
+        "participant_avatar": row[4],
+        "last_message": row[5],
+        "last_message_at": row[6],
+        "unread_count": row[7]
+    }
+
 def get_meta_messages(
     page_id,
     participant_id,
