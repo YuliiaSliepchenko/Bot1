@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+import time
 
 
 VOLUME_PATH = os.getenv(
@@ -95,6 +96,20 @@ def init_db():
         status TEXT DEFAULT 'received',
         raw_payload TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS meta_message_reactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mid TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        page_id TEXT NOT NULL,
+        participant_id TEXT NOT NULL,
+        reaction TEXT NOT NULL,
+        reacted_by TEXT DEFAULT 'manager',
+        created_at INTEGER NOT NULL,
+        UNIQUE(mid, reacted_by)
     )
     """)
 
@@ -765,3 +780,139 @@ def update_meta_conversation_profile(
 
     conn.commit()
     conn.close()
+
+ALLOWED_META_REACTIONS = {
+    "👍",
+    "❤️",
+    "😂",
+    "😮",
+    "😢",
+    "😡"
+}
+
+
+def save_meta_message_reaction(
+    mid,
+    platform,
+    page_id,
+    participant_id,
+    reaction,
+    reacted_by="manager"
+):
+    reaction = str(reaction or "").strip()
+
+    if reaction not in ALLOWED_META_REACTIONS:
+        return {
+            "success": False,
+            "error": "Непідтримувана реакція."
+        }
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO meta_message_reactions (
+        mid,
+        platform,
+        page_id,
+        participant_id,
+        reaction,
+        reacted_by,
+        created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(mid, reacted_by)
+    DO UPDATE SET
+        reaction = excluded.reaction,
+        created_at = excluded.created_at
+    """, (
+        str(mid),
+        str(platform),
+        str(page_id),
+        str(participant_id),
+        reaction,
+        str(reacted_by),
+        int(time.time() * 1000)
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "mid": str(mid),
+        "reaction": reaction
+    }
+
+
+def delete_meta_message_reaction(
+    mid,
+    reacted_by="manager"
+):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    DELETE FROM meta_message_reactions
+    WHERE mid = ?
+      AND reacted_by = ?
+    """, (
+        str(mid),
+        str(reacted_by)
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "mid": str(mid)
+    }
+
+
+def get_meta_reactions_for_messages(message_ids):
+    clean_ids = [
+        str(mid)
+        for mid in (message_ids or [])
+        if mid
+    ]
+
+    if not clean_ids:
+        return {}
+
+    placeholders = ",".join(
+        "?"
+        for _ in clean_ids
+    )
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(f"""
+    SELECT
+        mid,
+        reaction,
+        reacted_by,
+        created_at
+    FROM meta_message_reactions
+    WHERE mid IN ({placeholders})
+    """, clean_ids)
+
+    rows = cur.fetchall()
+    conn.close()
+
+    result = {}
+
+    for row in rows:
+        mid = row[0]
+
+        if mid not in result:
+            result[mid] = []
+
+        result[mid].append({
+            "reaction": row[1],
+            "reacted_by": row[2],
+            "created_at": row[3]
+        })
+
+    return result

@@ -42,7 +42,10 @@ from db import (
     mark_meta_conversation_read,
     mark_meta_messages_delivered,
     mark_meta_messages_read,
-    update_meta_conversation_profile
+    update_meta_conversation_profile,
+    save_meta_message_reaction,
+    delete_meta_message_reaction,
+    get_meta_reactions_for_messages
 )
 
 load_dotenv()
@@ -5150,6 +5153,20 @@ async def meta_direct_messages(
         limit=limit
     )
 
+    message_ids = [
+        str(message.get("mid") or "")
+        for message in messages
+        if message.get("mid")
+    ]
+
+    reactions_map = get_meta_reactions_for_messages(
+        message_ids
+    )
+
+    for message in messages:
+        mid = str(message.get("mid") or "")
+        message["reactions"] = reactions_map.get(mid, [])
+
     return {
         "success": True,
         "page_id": clean_page_id,
@@ -5201,6 +5218,67 @@ async def meta_direct_mark_read(
         "page_id": clean_page_id,
         "participant_id": clean_participant_id
     }
+
+@app.post("/api/meta/direct/reaction")
+async def meta_direct_reaction(
+    payload: MetaMessageReactionRequest
+):
+    mid = str(payload.mid or "").strip()
+    platform = str(payload.platform or "").strip().lower()
+    page_id = str(payload.page_id or "").strip()
+    participant_id = str(payload.participant_id or "").strip()
+    reaction = str(payload.reaction or "").strip()
+
+    if not mid:
+        return {
+            "success": False,
+            "error": "Не передано mid повідомлення."
+        }
+
+    if platform not in ["facebook", "instagram"]:
+        return {
+            "success": False,
+            "error": "platform має бути facebook або instagram."
+        }
+
+    if not page_id:
+        return {
+            "success": False,
+            "error": "Не передано page_id / instagram_id."
+        }
+
+    if not participant_id:
+        return {
+            "success": False,
+            "error": "Не передано participant_id."
+        }
+
+    return save_meta_message_reaction(
+        mid=mid,
+        platform=platform,
+        page_id=page_id,
+        participant_id=participant_id,
+        reaction=reaction,
+        reacted_by="manager"
+    )
+
+
+@app.delete("/api/meta/direct/reaction")
+async def meta_direct_reaction_delete(
+    mid: str
+):
+    clean_mid = str(mid or "").strip()
+
+    if not clean_mid:
+        return {
+            "success": False,
+            "error": "Не передано mid повідомлення."
+        }
+
+    return delete_meta_message_reaction(
+        mid=clean_mid,
+        reacted_by="manager"
+    )
 
 @app.get("/api/meta/instagram/direct/conversations")
 async def meta_instagram_direct_conversations(
@@ -5318,6 +5396,20 @@ async def meta_instagram_direct_messages(
         platform="instagram",
         limit=limit
     )
+
+    message_ids = [
+        str(message.get("mid") or "")
+        for message in messages
+        if message.get("mid")
+    ]
+
+    reactions_map = get_meta_reactions_for_messages(
+        message_ids
+    )
+
+    for message in messages:
+        mid = str(message.get("mid") or "")
+        message["reactions"] = reactions_map.get(mid, [])
 
     return {
         "success": True,
@@ -5638,6 +5730,13 @@ class MetaDirectSendRequest(BaseModel):
     page_id: str
     participant_id: str
     message: str
+
+class MetaMessageReactionRequest(BaseModel):
+    mid: str
+    platform: str
+    page_id: str
+    participant_id: str
+    reaction: str
 
 @app.get("/api/meta/instagram/direct/profile-debug")
 async def meta_instagram_direct_profile_debug(
