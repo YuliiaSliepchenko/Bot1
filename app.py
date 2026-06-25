@@ -5338,6 +5338,13 @@ async def meta_direct_media(
 
     return FileResponse(file_path)
 
+@app.get("/d/{filename}")
+async def meta_direct_short_download(filename: str):
+    return await meta_direct_media(
+        filename=filename,
+        download=True
+    )
+
 class MetaInstagramDirectSendRequest(BaseModel):
     instagram_id: str
     participant_id: str
@@ -6210,6 +6217,38 @@ async def meta_direct_send_file(
             and "error" not in send_result
         )
 
+        if not sent_to_meta:
+            error_obj = (
+                send_result.get("error")
+                if isinstance(send_result, dict)
+                else None
+            )
+
+            if isinstance(error_obj, dict):
+                meta_error = error_obj.get("message")
+            elif isinstance(error_obj, str):
+                meta_error = error_obj
+            else:
+                meta_error = None
+
+            if not meta_error and isinstance(send_result, dict):
+                meta_error = (
+                    send_result.get("message")
+                    or send_result.get("raw")
+                )
+
+            meta_error = (
+                meta_error
+                or "Meta не прийняла файл для надсилання клієнту."
+            )
+
+            return {
+                "success": False,
+                "sent_to_meta": False,
+                "error": meta_error,
+                "details": send_result
+            }
+
         message_id = str(
             send_result.get("message_id")
             or (
@@ -6230,7 +6269,7 @@ async def meta_direct_send_file(
             timestamp=timestamp,
             message_type=attachment_type,
             attachment_url=saved_file["url"],
-            status="sent" if sent_to_meta else "local",
+            status="sent",
             raw_payload={
                 "source": "crm",
                 "file": {
@@ -6243,22 +6282,6 @@ async def meta_direct_send_file(
                 "meta_response": send_result
             }
         )
-
-        if not sent_to_meta:
-            return {
-                "success": False,
-                "sent_to_meta": False,
-                "warning": (
-                    "Файл збережено в CRM, але Meta не прийняла "
-                    "його для надсилання клієнту."
-                ),
-                "details": send_result,
-                "file": {
-                    "name": saved_file["original_name"],
-                    "url": saved_file["url"],
-                    "download_url": saved_file["url"] + "?download=1"
-                }
-            }
 
         return {
             "success": True,
@@ -6370,7 +6393,7 @@ async def meta_instagram_direct_send_file(
 
             else:
                 # ✅ Для pdf/docx/pptx/zip тощо відправляємо посилання текстом
-                file_link = f"{saved_file['url']}?download=1"
+                file_link = f"{APP_PUBLIC_URL}/d/{saved_file['stored_filename']}"
 
                 request_body = {
                     "messaging_type": "RESPONSE",
