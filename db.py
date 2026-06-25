@@ -690,3 +690,32 @@ def mark_meta_messages_read(
 
     conn.commit()
     conn.close()
+
+def update_meta_conversation_profile(
+    platform,
+    page_id,
+    participant_id,
+    participant_name=None,
+    participant_avatar=None
+):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    UPDATE meta_conversations
+    SET participant_name = COALESCE(NULLIF(?, ''), participant_name),
+        participant_avatar = COALESCE(NULLIF(?, ''), participant_avatar),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE platform = ?
+      AND page_id = ?
+      AND participant_id = ?
+    """, (
+        participant_name or "",
+        participant_avatar or "",
+        platform,
+        str(page_id),
+        str(participant_id)
+    ))
+
+    conn.commit()
+    conn.close()
