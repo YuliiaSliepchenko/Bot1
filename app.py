@@ -343,6 +343,13 @@ class FacebookCommentDeleteRequest(BaseModel):
     page_id: str
     comment_id: str
 
+class MetaMessageReactionRequest(BaseModel):
+    mid: str
+    platform: str
+    page_id: str
+    participant_id: str
+    reaction: str
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -5730,13 +5737,6 @@ class MetaDirectSendRequest(BaseModel):
     page_id: str
     participant_id: str
     message: str
-
-class MetaMessageReactionRequest(BaseModel):
-    mid: str
-    platform: str
-    page_id: str
-    participant_id: str
-    reaction: str
 
 @app.get("/api/meta/instagram/direct/profile-debug")
 async def meta_instagram_direct_profile_debug(
