@@ -100,7 +100,7 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 CRM_URL = os.getenv("CRM_URL", "http://127.0.0.1:5500/index.html")
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/gmail.modify",
+    "https://mail.google.com/",
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/documents",
@@ -1403,6 +1403,47 @@ async def google_gmail_delete(message_id: str):
 class GoogleDocCreateRequest(BaseModel):
     title: str = "ItEnAi CRM Документ"
     text: str = ""
+
+@app.delete("/api/google/gmail/delete-forever/{message_id}")
+async def google_gmail_delete_forever(message_id: str):
+    clean_message_id = str(message_id or "").strip()
+
+    if not clean_message_id:
+        return {
+            "success": False,
+            "error": "Не передано ID листа Gmail."
+        }
+
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.delete(
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{clean_message_id}",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            }
+        )
+
+    if res.status_code not in [200, 204]:
+        try:
+            details = res.json()
+        except Exception:
+            details = res.text
+
+        return {
+            "success": False,
+            "error": "Не вдалося видалити лист назавжди.",
+            "status_code": res.status_code,
+            "details": details
+        }
+
+    return {
+        "success": True,
+        "message_id": clean_message_id,
+        "deleted": True,
+        "action": "permanently_deleted"
+    }
 
 
 @app.post("/api/google/docs/create")
