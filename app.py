@@ -100,7 +100,7 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 CRM_URL = os.getenv("CRM_URL", "http://127.0.0.1:5500/index.html")
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/documents",
@@ -1357,6 +1357,47 @@ async def google_gmail_read(message_id: str):
             "snippet": data.get("snippet", ""),
             "body": find_gmail_body(data.get("payload", {}))
         }
+    }
+
+@app.delete("/api/google/gmail/delete/{message_id}")
+async def google_gmail_delete(message_id: str):
+    clean_message_id = str(message_id or "").strip()
+
+    if not clean_message_id:
+        return {
+            "success": False,
+            "error": "Не передано ID листа Gmail."
+        }
+
+    auth = await get_valid_google_access_token()
+    access_token = auth["access_token"]
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.post(
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{clean_message_id}/trash",
+            headers={
+                "Authorization": f"Bearer {access_token}"
+            }
+        )
+
+    if res.status_code not in [200, 204]:
+        try:
+            details = res.json()
+        except Exception:
+            details = res.text
+
+        return {
+            "success": False,
+            "error": "Не вдалося перенести лист у кошик Gmail.",
+            "status_code": res.status_code,
+            "details": details
+        }
+
+    return {
+        "success": True,
+        "message_id": clean_message_id,
+        "deleted": True,
+        "action": "moved_to_gmail_trash"
     }
 
 class GoogleDocCreateRequest(BaseModel):
