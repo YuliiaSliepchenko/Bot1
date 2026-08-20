@@ -4,7 +4,8 @@ from fastapi import (
     Query,
     UploadFile,
     File,
-    Form
+    Form,
+    Request
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -23,6 +24,8 @@ from dotenv import load_dotenv
 import json
 from pathlib import Path
 from uuid import uuid4
+from trial_chat import handle_chat
+from typing import Optional
 from db import (
     init_db,
     save_lead,
@@ -40,7 +43,9 @@ from db import (
     get_meta_messages,
     mark_meta_conversation_read,
     mark_meta_messages_delivered,
-    mark_meta_messages_read
+    mark_meta_messages_read,
+    save_chat_message,
+    get_chat_history
 )
 
 load_dotenv()
@@ -190,9 +195,10 @@ Roblox, Python, AI, 3D, Блогінг.
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None
+    source: str = "website_chat"
 
-@app.post("/chat")
-async def chat(req: ChatRequest):
+async def _chat_response(req: ChatRequest, history=None):
 
     msg = req.message
     msg_lower = msg.lower()
@@ -396,7 +402,8 @@ async def chat(req: ChatRequest):
         }
 
     # 🕓 КОНКРЕТНИЙ ЧАС
-    if any(x in msg_lower for x in ["19", "18", "20", ":"]):
+    import re
+    if re.search(r"(?<!\d)(?:[01]?\d|2[0-3])(?:[:.]\d{2})?(?!\d)", msg_lower):
         return {
             "response": (
                 "Чудово 🙌\n\n"
@@ -421,6 +428,7 @@ async def chat(req: ChatRequest):
         "model": MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
+            *(history or []),
             {"role": "user", "content": msg}
         ]
     }
@@ -442,6 +450,29 @@ async def chat(req: ChatRequest):
 
     except Exception:
         return {"response": "Сервер тимчасово недоступний. Спробуйте ще раз пізніше."}
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest, request: Request, response: Response):
+    session_id = (
+        req.session_id
+        or request.headers.get("X-Chat-Session")
+        or request.cookies.get("chat_session_id")
+        or str(uuid4())
+    )[:128]
+    result = handle_chat(session_id, req.message, req.source)
+    save_chat_message(session_id, "user", req.message)
+    save_chat_message(session_id, "assistant", result["response"])
+    response.set_cookie(
+        "chat_session_id",
+        session_id,
+        max_age=60 * 60 * 24 * 30,
+        httponly=True,
+        samesite="lax",
+        secure=APP_PUBLIC_URL.startswith("https://")
+    )
+    result["session_id"] = session_id
+    return result
 
 
 @app.get("/api/google/status")

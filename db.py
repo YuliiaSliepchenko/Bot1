@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+from datetime import datetime
 
 
 VOLUME_PATH = os.getenv(
@@ -98,18 +99,220 @@ def init_db():
     )
     """)
 
+    # Нові таблиці для управління чатом
     cur.execute("""
-    CREATE INDEX IF NOT EXISTS idx_meta_conversations_page
-    ON meta_conversations(page_id, last_message_at DESC)
+    CREATE TABLE IF NOT EXISTS chat_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        platform TEXT DEFAULT 'telegram',
+        user_message TEXT,
+        bot_response TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
     """)
 
     cur.execute("""
-    CREATE INDEX IF NOT EXISTS idx_meta_messages_conversation
-    ON meta_messages(page_id, participant_id, timestamp ASC)
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT UNIQUE NOT NULL,
+        platform TEXT DEFAULT 'telegram',
+        current_stage TEXT DEFAULT 'greeting',
+        child_name TEXT,
+        child_age INTEGER,
+        interests TEXT,
+        selected_course TEXT,
+        preferred_date TEXT,
+        preferred_time TEXT,
+        parent_phone TEXT,
+        application_status TEXT DEFAULT 'draft',
+        wants_manager_contact INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
     """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        child_name TEXT NOT NULL,
+        child_age INTEGER NOT NULL,
+        selected_course TEXT NOT NULL,
+        preferred_date TEXT,
+        preferred_time TEXT,
+        parent_phone TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id DESC)")
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS conversation_state (
+        session_id TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'IDLE',
+        child_name TEXT, child_age INTEGER, interests TEXT, selected_course TEXT,
+        preferred_date TEXT, preferred_time TEXT, parent_phone TEXT,
+        pending_callback INTEGER DEFAULT 0, confirmation_token TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS trial_leads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, lead_code TEXT UNIQUE,
+        session_id TEXT NOT NULL, confirmation_token TEXT UNIQUE,
+        child_name TEXT, child_age INTEGER, course TEXT,
+        preferred_date TEXT, preferred_time TEXT, parent_phone TEXT,
+        status TEXT DEFAULT 'new', source TEXT DEFAULT 'website_chat',
+        manager_callback INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_meta_conversations_page ON meta_conversations(page_id, last_message_at DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_meta_messages_conversation ON meta_messages(page_id, participant_id, timestamp ASC)")
 
     conn.commit()
     conn.close()
+
+
+# ===== Функції для керування чат-сесіями =====
+
+def get_or_create_session(user_id, platform="telegram"):
+    """Отримати або створити сесію користувача"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    cur.execute(
+        "SELECT * FROM chat_sessions WHERE user_id = ? AND platform = ?",
+        (user_id, platform)
+    )
+    session = cur.fetchone()
+    
+    if not session:
+        cur.execute("""
+            INSERT INTO chat_sessions (user_id, platform, current_stage)
+            VALUES (?, ?, ?)
+        """, (user_id, platform, "greeting"))
+        conn.commit()
+    
+    conn.close()
+    return session
+
+
+def get_session(user_id, platform="telegram"):
+    """Отримати сесію користувача"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT user_id, platform, current_stage, child_name, child_age, 
+               interests, selected_course, preferred_date, preferred_time, 
+               parent_phone, application_status, wants_manager_contact
+        FROM chat_sessions 
+        WHERE user_id = ? AND platform = ?
+    """, (user_id, platform))
+    
+    result = cur.fetchone()
+    conn.close()
+    
+    if result:
+        return {
+            "user_id": result[0],
+            "platform": result[1],
+            "current_stage": result[2],
+            "child_name": result[3],
+            "child_age": result[4],
+            "interests": result[5],
+            "selected_course": result[6],
+            "preferred_date": result[7],
+            "preferred_time": result[8],
+            "parent_phone": result[9],
+            "application_status": result[10],
+            "wants_manager_contact": result[11]
+        }
+    return None
+
+
+def update_session(user_id, platform="telegram", **kwargs):
+    """Оновити дані сесії користувача"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    updates = []
+    values = []
+    
+    for key, value in kwargs.items():
+        if key in ["current_stage", "child_name", "child_age", "interests", 
+                   "selected_course", "preferred_date", "preferred_time", 
+                   "parent_phone", "application_status", "wants_manager_contact"]:
+            updates.append(f"{key} = ?")
+            values.append(value)
+    
+    if updates:
+        values.extend([user_id, platform])
+        query = f"UPDATE chat_sessions SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND platform = ?"
+        cur.execute(query, values)
+        conn.commit()
+    
+    conn.close()
+
+
+def save_chat_message_new(user_id, user_message, bot_response, platform="telegram"):
+    """Зберегти повідомлення чату"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    cur.execute("""
+        INSERT INTO chat_history (user_id, platform, user_message, bot_response)
+        VALUES (?, ?, ?, ?)
+    """, (user_id, platform, user_message, bot_response))
+    
+    conn.commit()
+    conn.close()
+
+
+def save_application(user_id, child_name, child_age, selected_course, preferred_date, preferred_time, parent_phone):
+    """Зберегти заявку на навчання"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    cur.execute("""
+        INSERT INTO applications 
+        (user_id, child_name, child_age, selected_course, preferred_date, preferred_time, parent_phone)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, child_name, child_age, selected_course, preferred_date, preferred_time, parent_phone))
+    
+    conn.commit()
+    app_id = cur.lastrowid
+    conn.close()
+    
+    return app_id
+
+
+def get_applications(status=None):
+    """Отримати все заявки або за статусом"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    if status:
+        cur.execute("SELECT * FROM applications WHERE status = ? ORDER BY created_at DESC", (status,))
+    else:
+        cur.execute("SELECT * FROM applications ORDER BY created_at DESC")
+    
+    results = cur.fetchall()
+    conn.close()
+    
+    return results
 
 
 def save_lead(source, message):
@@ -123,6 +326,95 @@ def save_lead(source, message):
 
     conn.commit()
     conn.close()
+
+
+def save_chat_message(session_id, role, content):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO chat_messages (session_id, role, content) VALUES (?, ?, ?)",
+        (session_id, role, content)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_chat_history(session_id, limit=12):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT role, content FROM chat_messages
+        WHERE session_id = ?
+        ORDER BY id DESC LIMIT ?
+    """, (session_id, limit))
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(row) for row in reversed(rows)]
+
+
+def get_conversation_state(session_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM conversation_state WHERE session_id = ?", (session_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.execute("INSERT INTO conversation_state (session_id) VALUES (?)", (session_id,))
+        conn.commit()
+        cur.execute("SELECT * FROM conversation_state WHERE session_id = ?", (session_id,))
+        row = cur.fetchone()
+    result = dict(row)
+    conn.close()
+    return result
+
+
+def update_conversation_state(session_id, **values):
+    allowed = {
+        "state", "child_name", "child_age", "interests", "selected_course",
+        "preferred_date", "preferred_time", "parent_phone",
+        "pending_callback", "confirmation_token"
+    }
+    values = {key: value for key, value in values.items() if key in allowed}
+    get_conversation_state(session_id)
+    if not values:
+        return get_conversation_state(session_id)
+    assignments = ", ".join(f"{key} = ?" for key in values)
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE conversation_state SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+        (*values.values(), session_id)
+    )
+    conn.commit()
+    conn.close()
+    return get_conversation_state(session_id)
+
+
+def create_trial_lead(session_id, confirmation_token, state, source="website_chat", manager_callback=0):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT lead_code FROM trial_leads WHERE confirmation_token = ?", (confirmation_token,))
+    existing = cur.fetchone()
+    if existing:
+        conn.close()
+        return existing[0], False
+    cur.execute("""
+        INSERT INTO trial_leads (
+            session_id, confirmation_token, child_name, child_age, course,
+            preferred_date, preferred_time, parent_phone, source, manager_callback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        session_id, confirmation_token, state.get("child_name"), state.get("child_age"),
+        state.get("selected_course"), state.get("preferred_date"),
+        state.get("preferred_time"), state.get("parent_phone"), source, manager_callback
+    ))
+    lead_id = cur.lastrowid
+    lead_code = f"IT-{1000 + lead_id}"
+    cur.execute("UPDATE trial_leads SET lead_code = ? WHERE id = ?", (lead_code, lead_id))
+    conn.commit()
+    conn.close()
+    return lead_code, True
 
 
 def save_google_tokens(email, access_token, refresh_token):
