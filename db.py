@@ -2,6 +2,7 @@ import sqlite3
 import json
 import os
 from datetime import datetime
+import time
 
 
 VOLUME_PATH = os.getenv(
@@ -109,6 +110,25 @@ def init_db():
         bot_response TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS meta_message_reactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mid TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        page_id TEXT NOT NULL,
+        participant_id TEXT NOT NULL,
+        reaction TEXT NOT NULL,
+        reacted_by TEXT DEFAULT 'manager',
+        created_at INTEGER NOT NULL,
+        UNIQUE(mid, reacted_by)
+    )
+    """)
+
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_meta_conversations_page
+    ON meta_conversations(page_id, last_message_at DESC)
     """)
 
     cur.execute("""
@@ -814,6 +834,52 @@ def get_meta_conversations(page_id=None, platform="facebook", limit=100):
         for row in rows
     ]
 
+def get_meta_conversation(
+    page_id,
+    participant_id,
+    platform="facebook"
+):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    SELECT
+        platform,
+        page_id,
+        participant_id,
+        participant_name,
+        participant_avatar,
+        last_message,
+        last_message_at,
+        unread_count
+    FROM meta_conversations
+    WHERE platform = ?
+      AND page_id = ?
+      AND participant_id = ?
+    LIMIT 1
+    """, (
+        platform,
+        str(page_id),
+        str(participant_id)
+    ))
+
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "platform": row[0],
+        "page_id": row[1],
+        "participant_id": row[2],
+        "participant_name": row[3],
+        "participant_avatar": row[4],
+        "last_message": row[5],
+        "last_message_at": row[6],
+        "unread_count": row[7]
+    }
+
 def get_meta_messages(
     page_id,
     participant_id,
@@ -895,7 +961,8 @@ def mark_meta_messages_delivered(
     page_id,
     participant_id,
     watermark=0,
-    mids=None
+    mids=None,
+    platform="facebook"
 ):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -914,13 +981,14 @@ def mark_meta_messages_delivered(
         cur.execute(f"""
         UPDATE meta_messages
         SET status = 'delivered'
-        WHERE platform = 'facebook'
+        WHERE platform = ?
           AND page_id = ?
           AND participant_id = ?
           AND direction = 'out'
           AND mid IN ({placeholders})
           AND status != 'read'
         """, [
+            platform,
             str(page_id),
             str(participant_id),
             *clean_mids
@@ -930,13 +998,14 @@ def mark_meta_messages_delivered(
         cur.execute("""
         UPDATE meta_messages
         SET status = 'delivered'
-        WHERE platform = 'facebook'
+        WHERE platform = ?
           AND page_id = ?
           AND participant_id = ?
           AND direction = 'out'
           AND timestamp <= ?
           AND status != 'read'
         """, (
+            platform,
             str(page_id),
             str(participant_id),
             int(watermark)
@@ -949,7 +1018,8 @@ def mark_meta_messages_delivered(
 def mark_meta_messages_read(
     page_id,
     participant_id,
-    watermark
+    watermark,
+    platform="facebook"
 ):
     clean_watermark = int(
         watermark or 0
@@ -964,12 +1034,13 @@ def mark_meta_messages_read(
     cur.execute("""
     UPDATE meta_messages
     SET status = 'read'
-    WHERE platform = 'facebook'
+    WHERE platform = ?
       AND page_id = ?
       AND participant_id = ?
       AND direction = 'out'
       AND timestamp <= ?
     """, (
+        platform,
         str(page_id),
         str(participant_id),
         clean_watermark
@@ -977,3 +1048,168 @@ def mark_meta_messages_read(
 
     conn.commit()
     conn.close()
+
+def update_meta_conversation_profile(
+    platform,
+    page_id,
+    participant_id,
+    participant_name=None,
+    participant_avatar=None
+):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    UPDATE meta_conversations
+    SET participant_name = COALESCE(NULLIF(?, ''), participant_name),
+        participant_avatar = COALESCE(NULLIF(?, ''), participant_avatar),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE platform = ?
+      AND page_id = ?
+      AND participant_id = ?
+    """, (
+        participant_name or "",
+        participant_avatar or "",
+        platform,
+        str(page_id),
+        str(participant_id)
+    ))
+
+    conn.commit()
+    conn.close()
+
+ALLOWED_META_REACTIONS = {
+    "👍",
+    "❤️",
+    "😂",
+    "😮",
+    "😢",
+    "😡"
+}
+
+
+def save_meta_message_reaction(
+    mid,
+    platform,
+    page_id,
+    participant_id,
+    reaction,
+    reacted_by="manager"
+):
+    reaction = str(reaction or "").strip()
+
+    if reaction not in ALLOWED_META_REACTIONS:
+        return {
+            "success": False,
+            "error": "Непідтримувана реакція."
+        }
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    INSERT INTO meta_message_reactions (
+        mid,
+        platform,
+        page_id,
+        participant_id,
+        reaction,
+        reacted_by,
+        created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(mid, reacted_by)
+    DO UPDATE SET
+        reaction = excluded.reaction,
+        created_at = excluded.created_at
+    """, (
+        str(mid),
+        str(platform),
+        str(page_id),
+        str(participant_id),
+        reaction,
+        str(reacted_by),
+        int(time.time() * 1000)
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "mid": str(mid),
+        "reaction": reaction
+    }
+
+
+def delete_meta_message_reaction(
+    mid,
+    reacted_by="manager"
+):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+    DELETE FROM meta_message_reactions
+    WHERE mid = ?
+      AND reacted_by = ?
+    """, (
+        str(mid),
+        str(reacted_by)
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "mid": str(mid)
+    }
+
+
+def get_meta_reactions_for_messages(message_ids):
+    clean_ids = [
+        str(mid)
+        for mid in (message_ids or [])
+        if mid
+    ]
+
+    if not clean_ids:
+        return {}
+
+    placeholders = ",".join(
+        "?"
+        for _ in clean_ids
+    )
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(f"""
+    SELECT
+        mid,
+        reaction,
+        reacted_by,
+        created_at
+    FROM meta_message_reactions
+    WHERE mid IN ({placeholders})
+    """, clean_ids)
+
+    rows = cur.fetchall()
+    conn.close()
+
+    result = {}
+
+    for row in rows:
+        mid = row[0]
+
+        if mid not in result:
+            result[mid] = []
+
+        result[mid].append({
+            "reaction": row[1],
+            "reacted_by": row[2],
+            "created_at": row[3]
+        })
+
+    return result
