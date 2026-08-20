@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ItEnAi School — AI-помічник</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#eef1f8;font-family:Arial,sans-serif;color:#142455}
+    .chat{height:100dvh;max-width:430px;margin:auto;background:#f5f6fb;display:flex;flex-direction:column;box-shadow:0 0 24px #1c2b5a22}
+    header{padding:12px;background:#192d69;color:#fff;font-weight:700}header small{display:block;font-weight:400;opacity:.8;margin-top:3px}.top-actions{display:flex;gap:6px;margin-top:10px}.manager,.questions{border:0;border-radius:18px;padding:8px 10px;cursor:pointer}.manager{background:#d7ef32}.questions{background:#fff;color:#142455}
+    #messages{flex:1;overflow:auto;padding:12px}.row{display:flex;margin:8px 0}.row.user{justify-content:flex-end}.bubble{max-width:80%;padding:11px 13px;border-radius:16px;white-space:pre-wrap;line-height:1.35;background:#dce4ff}.user .bubble{background:#d8fbdc}
+    .actions{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0 14px}.action{border:1px solid #8ea3df;background:#fff;color:#142455;border-radius:18px;padding:9px 12px;cursor:pointer}.action:hover{background:#e9eeff}.action:disabled{opacity:.5}
+    .typing{display:none;padding:4px 14px;color:#667;font-size:13px}.composer{display:flex;border-top:1px solid #d9deea;background:#fff}.composer input{flex:1;border:0;padding:15px;font-size:15px;outline:0}.send{width:64px;border:0;background:linear-gradient(135deg,#31c9df,#b7df16);font-size:22px;cursor:pointer}
+  </style>
+</head>
+<body>
+<main class="chat">
+  <header><div>ItEnAi School<small>AI-помічник онлайн</small></div><div class="top-actions"><button class="questions" data-action="questions">💬 Інші питання</button><button class="manager" data-action="manager">📞 Менеджер</button></div></header>
+  <section id="messages" aria-live="polite"></section>
+  <div class="typing" id="typing">AI-помічник друкує…</div>
+  <form class="composer" id="form"><input id="input" autocomplete="off" placeholder="Напишіть повідомлення…"><button class="send" aria-label="Надіслати">➤</button></form>
+</main>
+<script>
+  const messages=document.querySelector('#messages'),form=document.querySelector('#form'),input=document.querySelector('#input'),typing=document.querySelector('#typing');
+  let sessionId=localStorage.getItem('itenai_chat_session')||null,busy=false;
+  function addMessage(text,role){const row=document.createElement('div');row.className='row '+role;const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=text;row.append(bubble);messages.append(row);messages.scrollTop=messages.scrollHeight}
+  function addActions(items=[]){if(!items.length)return;const box=document.createElement('div');box.className='actions';items.forEach(item=>{const button=document.createElement('button');button.className='action';button.textContent=item.label||item.text;button.onclick=()=>{if(String(item.id).startsWith('tel:')){location.href=item.id;return}send(item.id,button.textContent)};box.append(button)});messages.append(box);messages.scrollTop=messages.scrollHeight}
+  async function send(value,label){if(busy||!String(value).trim())return;busy=true;document.querySelectorAll('.action').forEach(x=>x.disabled=true);addMessage(label||value,'user');input.value='';typing.style.display='block';try{const response=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:value,session_id:sessionId,source:'website_chat'})});if(!response.ok)throw new Error('HTTP '+response.status);const data=await response.json();sessionId=data.session_id||sessionId;if(sessionId)localStorage.setItem('itenai_chat_session',sessionId);addMessage(data.message||data.response,'bot');addActions(data.actions?.items||data.buttons||[])}catch(error){addMessage('Не вдалося надіслати повідомлення. Спробуйте ще раз.','bot')}finally{typing.style.display='none';busy=false;input.focus()}}
+  form.addEventListener('submit',event=>{event.preventDefault();send(input.value)});document.querySelector('[data-action="manager"]').onclick=()=>send('manager','📞 Зв’язатися з менеджером');document.querySelector('[data-action="questions"]').onclick=()=>send('other_questions','💬 Інші питання');
+  addMessage('Вітаю 👋 Оберіть, що хочете зробити: заповнити коротку заявку, підібрати напрям або поставити інше запитання.','bot');
+  addActions([{id:'trial',label:'📝 Записатися на пробне'},{id:'course_selection',label:'🎓 Підібрати напрям'},{id:'other_questions',label:'💬 Інші питання'},{id:'manager',label:'📞 Зв’язатися з менеджером'}]);
+</script>
+</body>
+</html>

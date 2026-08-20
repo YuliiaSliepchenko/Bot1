@@ -13,6 +13,7 @@ import os
 import time
 import httpx
 import base64
+import hashlib
 from fastapi.responses import (
     RedirectResponse,
     Response,
@@ -96,6 +97,11 @@ APP_PUBLIC_URL = os.getenv(
 app = FastAPI()
 
 init_db()
+
+
+@app.get("/chat-widget", include_in_schema=False)
+async def chat_widget():
+    return FileResponse(Path(__file__).with_name("chat_widget.html"))
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL = "openai/gpt-4o-mini"
@@ -646,15 +652,62 @@ async def _chat_response(req: ChatRequest, history=None):
         return {"response": "Сервер тимчасово недоступний. Спробуйте ще раз пізніше."}
 
 
+async def _answer_school_question(message, history):
+    if not OPENROUTER_API_KEY:
+        return "Зараз AI-консультація тимчасово недоступна. Можу передати Ваше запитання менеджеру."
+    knowledge = Path(__file__).with_name("courses.json").read_text(encoding="utf-8")
+    prompt = (
+        "Ти AI-консультант ItEnAi School. Відповідай коротко, доброзичливо й українською. "
+        "Використовуй виключно наведену базу знань. Не вигадуй ціни, розклад, місця, "
+        "акції, викладачів чи умови пробного заняття. Якщо даних немає, прямо скажи про це "
+        "і запропонуй менеджера за номером +380 93 148 03 43. Став не більше одного питання.\n\n"
+        f"БАЗА ЗНАНЬ:\n{knowledge}"
+    )
+    payload = {
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": prompt},
+            *(history or []),
+            {"role": "user", "content": message}
+        ]
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            result = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json"},
+                json=payload
+            )
+        data = result.json()
+        return data["choices"][0]["message"]["content"]
+    except Exception:
+        return "Не вдалося отримати відповідь AI. Спробуйте ще раз або зв'яжіться з менеджером."
+
+
 @app.post("/chat")
 async def chat(req: ChatRequest, request: Request, response: Response):
+    forwarded_for = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    client_ip = forwarded_for or (request.client.host if request.client else "unknown")
+    fingerprint_source = "|".join([
+        client_ip,
+        request.headers.get("User-Agent", "unknown"),
+        request.headers.get("Origin", "unknown")
+    ])
+    fallback_session_id = "web:" + hashlib.sha256(
+        fingerprint_source.encode("utf-8")
+    ).hexdigest()[:32]
     session_id = (
         req.session_id
         or request.headers.get("X-Chat-Session")
         or request.cookies.get("chat_session_id")
-        or str(uuid4())
+        or fallback_session_id
     )[:128]
+    history = get_chat_history(session_id)
     result = handle_chat(session_id, req.message, req.source)
+    if result.pop("needs_ai", False):
+        ai_text = await _answer_school_question(req.message, history)
+        result["response"] = ai_text
+        result["message"] = ai_text
     save_chat_message(session_id, "user", req.message)
     save_chat_message(session_id, "assistant", result["response"])
     response.set_cookie(

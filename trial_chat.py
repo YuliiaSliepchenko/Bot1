@@ -17,6 +17,23 @@ INTEREST_BUTTONS = [
     ("unsure", "🤷 Ще не визначились")
 ]
 
+AGE_BUTTONS = [(f"age:{age}", str(age)) for age in range(6, 19)]
+COURSE_BUTTONS = [(course_id, course["name"]) for course_id, course in COURSES.items()]
+DAY_BUTTONS = [
+    ("date:П’ятниця", "Пт"),
+    ("date:Субота", "Сб")
+]
+TIME_BUTTONS = [
+    ("time:09:00–12:00", "09:00–12:00"),
+    ("time:12:00–15:00", "12:00–15:00"),
+    ("time:15:00–18:00", "15:00–18:00"),
+    ("time:18:00–21:00", "18:00–21:00")
+]
+NAV_BUTTONS = [
+    ("other_questions", "💬 Інші питання"),
+    ("manager", "📞 Зв'язатися з менеджером")
+]
+
 
 def buttons(*items):
     return {"type": "buttons", "items": [{"id": item[0], "label": item[1]} for item in items]}
@@ -58,7 +75,7 @@ def detect_course(text):
     aliases = {
         "roblox": ["roblox", "роблокс", "lua", "ігри", "games"],
         "python": ["python", "пітон", "код", "математ", "логік", "programming"],
-        "ai": ["штучн", "chatgpt", "ai", "нейромереж", "картин", "copilot"],
+        "ai": ["штучн", "chatgpt", "ai", "ші", "нейромереж", "картин", "copilot"],
         "blender": ["blender", "3d", "3д", "модел", "дизайн", "design"],
         "blogging": ["youtube", "tiktok", "ютуб", "тікток", "блог", "відео", "blogging"],
         "computer": ["комп'ют", "комп’ют", "windows", "грамот", "computer"]
@@ -111,6 +128,25 @@ def handle_chat(session_id, message, source="website_chat"):
     current = state["state"]
     phone = normalize_phone(text)
 
+    if lower == "other_questions":
+        update_conversation_state(session_id, state="AI_QUESTIONS")
+        return answer(
+            "Поставте будь-яке запитання про ItEnAi School або наші курси. Після консультації можна повернутися до анкети.",
+            "AI_QUESTIONS",
+            ("trial", "📝 Повернутися до запису"),
+            ("manager", "📞 Зв'язатися з менеджером")
+        )
+
+    if lower == "course_selection":
+        update_conversation_state(session_id, state="ASKING_AGE")
+        return answer("Оберіть точний вік дитини:", "ASKING_AGE", *(AGE_BUTTONS + NAV_BUTTONS))
+
+    if current == "AI_QUESTIONS":
+        if lower in {"trial", "повернутися до запису"}:
+            update_conversation_state(session_id, state="ASKING_CHILD_NAME")
+            return answer("Як звати дитину?", "ASKING_CHILD_NAME", *NAV_BUTTONS)
+        return answer("", "AI_QUESTIONS", ("trial", "📝 Повернутися до запису"), ("manager", "📞 Зв'язатися з менеджером"), needs_ai=True)
+
     manager_words = ["менеджер", "оператор", "людин", "адміністратор", "дайте номер", "зв'язатися", "зв’язатися", "консультац"]
     if any(word in lower for word in manager_words) or lower == "manager":
         if phone:
@@ -144,37 +180,58 @@ def handle_chat(session_id, message, source="website_chat"):
         next_state = "ASKING_CHILD_NAME" if not state.get("child_name") else "ASKING_CHILD_AGE" if not state.get("child_age") else "ASKING_COURSE" if not state.get("selected_course") else "ASKING_DATE"
         update_conversation_state(session_id, state=next_state)
         prompts = {"ASKING_CHILD_NAME": "Супер 🚀 Як звати дитину?", "ASKING_CHILD_AGE": "Скільки років дитині?", "ASKING_COURSE": "Який напрям обираємо?", "ASKING_DATE": "Який день Вам буде зручний?"}
-        return answer(prompts[next_state], next_state, ("manager", "📞 Зв'язатися з менеджером"))
+        step_buttons = AGE_BUTTONS + NAV_BUTTONS if next_state == "ASKING_CHILD_AGE" else COURSE_BUTTONS + NAV_BUTTONS if next_state == "ASKING_COURSE" else DAY_BUTTONS + NAV_BUTTONS if next_state == "ASKING_DATE" else NAV_BUTTONS
+        return answer(prompts[next_state], next_state, *step_buttons)
 
     if current == "ASKING_CHILD_NAME":
         name = re.sub(r"[^A-Za-zА-Яа-яІіЇїЄєҐґ'’ -]", "", text).strip().title()
         if len(name) < 2:
             return answer("Напишіть, будь ласка, ім'я дитини.", current)
-        state = update_conversation_state(session_id, child_name=name, state="ASKING_CHILD_AGE" if not state.get("child_age") else "ASKING_DATE")
-        question = "Скільки років дитині?" if state["state"] == "ASKING_CHILD_AGE" else "Який день Вам буде зручний?"
-        return answer(question, state["state"], ("manager", "📞 Зв'язатися з менеджером"))
+        next_state = "ASKING_CHILD_AGE" if not state.get("child_age") else "ASKING_COURSE" if not state.get("selected_course") else "ASKING_DATE"
+        state = update_conversation_state(session_id, child_name=name, state=next_state)
+        question = {"ASKING_CHILD_AGE": "Оберіть точний вік дитини:", "ASKING_COURSE": "Оберіть напрям:", "ASKING_DATE": "Оберіть бажаний день:"}[next_state]
+        step_buttons = (AGE_BUTTONS if next_state == "ASKING_CHILD_AGE" else COURSE_BUTTONS if next_state == "ASKING_COURSE" else DAY_BUTTONS) + NAV_BUTTONS
+        return answer(question, state["state"], *step_buttons)
 
     if current in {"IDLE", "ASKING_AGE"}:
         age = extract_age(text)
         course_id = detect_course(text)
         if age:
             state = update_conversation_state(session_id, child_age=age, selected_course=course_id or state.get("selected_course"), state="ASKING_INTERESTS")
-            return answer("Чудово 😊 А що дитині найбільше подобається?", "ASKING_INTERESTS", *INTEREST_BUTTONS, ("manager", "📞 Зв'язатися з менеджером"))
+            return answer("Чудово 😊 А що дитині найбільше подобається?", "ASKING_INTERESTS", *(INTEREST_BUTTONS + NAV_BUTTONS))
         if course_id:
             state = update_conversation_state(session_id, selected_course=course_id, state="COURSE_INFO")
             price = any(word in lower for word in ["ціна", "вартість", "скільки"])
             return answer(course_summary(course_id, price) + "\n\nСкільки років дитині?", "ASKING_AGE", ("manager", "📞 Зв'язатися з менеджером"))
         update_conversation_state(session_id, state="ASKING_AGE")
-        return answer("Вітаю 👋 Допоможу підібрати IT-напрям або записати дитину на пробне заняття. Скільки років дитині?", "ASKING_AGE", ("manager", "📞 Зв'язатися з менеджером"))
+        return answer("Вітаю 👋 Можна пройти короткий підбір курсу або одразу заповнити заявку на пробне заняття.", "ASKING_AGE", ("trial", "📝 Записатися на пробне"), ("course_selection", "🎓 Підібрати напрям"), *NAV_BUTTONS)
 
     if current == "ASKING_CHILD_AGE":
         age = extract_age(text)
         if not age:
             return answer("Вкажіть, будь ласка, вік дитини від 6 до 18 років.", current)
         state = update_conversation_state(session_id, child_age=age, state="ASKING_DATE" if state.get("selected_course") else "ASKING_COURSE")
-        return answer("Який день Вам буде зручний?" if state["state"] == "ASKING_DATE" else "Який напрям обираємо?", state["state"])
+        return answer("Оберіть бажаний день:" if state["state"] == "ASKING_DATE" else "Оберіть напрям:", state["state"], *((DAY_BUTTONS if state["state"] == "ASKING_DATE" else COURSE_BUTTONS) + NAV_BUTTONS))
 
-    if current in {"ASKING_INTERESTS", "ASKING_COURSE"}:
+    if current == "ASKING_COURSE":
+        course_id = detect_course(text)
+        if not course_id:
+            return answer("Оберіть один із доступних напрямів:", current, *(COURSE_BUTTONS + NAV_BUTTONS))
+        update_conversation_state(session_id, selected_course=course_id, state="ASKING_DATE")
+        return answer("Оберіть бажаний день:", "ASKING_DATE", *(DAY_BUTTONS + NAV_BUTTONS))
+
+    if current == "ASKING_INTERESTS":
+        if lower in {"unsure", "ще не визначились", "не знаю"}:
+            return answer(
+                "Нічого страшного 😊 Що дитина частіше обирає у вільний час?",
+                current,
+                ("games", "🎮 Грати в ігри"),
+                ("ai", "🤖 Експериментувати з AI"),
+                ("design", "🎨 Малювати або створювати"),
+                ("blogging", "🎥 Дивитися чи знімати відео"),
+                ("computer", "🖥 Освоїти комп'ютер"),
+                ("manager", "📞 Порадитися з менеджером")
+            )
         course_id = detect_course(text)
         if not course_id:
             return answer("Підкажіть, що ближче дитині: ігри, AI, програмування, 3D, блогінг чи основи роботи з комп'ютером?", current, *INTEREST_BUTTONS)
@@ -182,11 +239,15 @@ def handle_chat(session_id, message, source="website_chat"):
         return answer(f"Я рекомендую {course_summary(course_id)}\n\nХочете підібрати день і час для пробного заняття?", "OFFERING_TRIAL", ("trial", "✅ Так, записатися"), ("ask", "💬 Спочатку хочу запитати"), ("manager", "📞 Зв'язатися з менеджером"))
 
     if current == "ASKING_DATE":
-        state = update_conversation_state(session_id, preferred_date=text, state="ASKING_TIME")
-        return answer("А приблизно який час Вам буде зручний?", "ASKING_TIME", ("manager", "📞 Зв'язатися з менеджером"))
+        if lower not in {"date:п’ятниця", "date:субота"}:
+            return answer("Пробні заняття доступні у п’ятницю або суботу. Оберіть день:", current, *(DAY_BUTTONS + NAV_BUTTONS))
+        selected_date = text.split(":", 1)[1]
+        state = update_conversation_state(session_id, preferred_date=selected_date, state="ASKING_TIME")
+        return answer("Оберіть приблизний зручний час:", "ASKING_TIME", *(TIME_BUTTONS + NAV_BUTTONS))
 
     if current == "ASKING_TIME":
-        state = update_conversation_state(session_id, preferred_time=text, state="ASKING_PHONE")
+        selected_time = text.split(":", 1)[1] if lower.startswith("time:") else text
+        state = update_conversation_state(session_id, preferred_time=selected_time, state="ASKING_PHONE")
         return answer("Залиште, будь ласка, номер телефону одного з батьків. Менеджер перевірить вільний час і підтвердить заняття.", "ASKING_PHONE", ("manager", "📞 Зв'язатися з менеджером"))
 
     if current == "ASKING_PHONE":
