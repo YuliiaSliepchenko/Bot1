@@ -7,60 +7,37 @@
     "manager_phone_display": "+380 93 148 03 43"
   },
   "courses": {
-    "roblox": {
-      "name": "Roblox / Lua",
-      "min_age": 7,
-      "max_age": 14,
+    "photoshop": {
+      "name": "Adobe Photoshop",
       "formats": ["group", "individual"],
-      "lessons": 24,
-      "group_price": 300,
+      "group_price": 250,
       "individual_price": 450,
-      "topics": ["Roblox Studio", "ігрові світи", "Terrain", "GUI", "основи Lua", "скрипти", "ігрові механіки"],
-      "result": "власна Roblox-гра або завершений ігровий проєкт"
+      "topics": ["цифрове малювання", "обробка фотографій", "колажі", "робота з кольором", "шари та маски"],
+      "result": "власні ілюстрації, колажі та оформлене портфоліо"
     },
-    "python": {
-      "name": "Python",
+    "after_effects": {
+      "name": "Adobe After Effects",
       "formats": ["group", "individual"],
-      "lessons": 24,
-      "group_price": 300,
+      "group_price": 250,
       "individual_price": 450,
-      "topics": ["змінні й типи даних", "умови", "цикли", "функції", "списки й словники", "алгоритми", "ігрові та AI-проєкти"],
-      "result": "власні програми та практичний фінальний проєкт"
+      "topics": ["анімація", "моушн-дизайн", "візуальні ефекти", "титри", "монтаж коротких відео"],
+      "result": "власні анімаційні та відеопроєкти"
     },
     "ai": {
       "name": "Штучний інтелект",
       "formats": ["group", "individual"],
-      "lessons": 24,
-      "group_price": 300,
+      "group_price": 250,
       "individual_price": 450,
-      "topics": ["ChatGPT", "правильне спілкування з AI", "тексти й історії", "AI-зображення", "сценарії", "AI-безпека", "перевірка інформації"],
-      "result": "власні творчі AI-проєкти"
+      "topics": ["ChatGPT", "робота з нейромережами", "AI-зображення", "тексти та сценарії", "безпечне використання ШІ"],
+      "result": "власні творчі проєкти із застосуванням ШІ"
     },
-    "blender": {
-      "name": "Blender / 3D",
-      "formats": ["group", "individual"],
-      "lessons": 24,
-      "group_price": 300,
-      "individual_price": 450,
-      "topics": ["інтерфейс Blender", "3D-моделювання", "матеріали й текстури", "освітлення", "камери й рендер", "персонажі", "базова анімація"],
-      "result": "власні 3D-моделі та фінальний проєкт"
-    },
-    "blogging": {
-      "name": "Блогінг + ШІ",
-      "formats": ["group", "individual"],
-      "lessons": 24,
-      "group_price": 300,
-      "individual_price": 450,
-      "topics": ["YouTube і TikTok", "стиль каналу", "Canva", "контент-план", "сценарії з AI", "зйомка", "монтаж у CapCut", "Shorts і Reels"],
-      "result": "концепція й оформлення каналу, контент-план та перші відео"
-    },
-    "computer": {
-      "name": "Комп'ютерна грамотність",
+    "digital_design": {
+      "name": "Цифровий дизайн",
       "formats": ["group", "individual"],
       "group_price": 250,
       "individual_price": 450,
-      "topics": ["Windows", "файли й папки", "клавіатура", "браузер і пошук", "Google-сервіси", "документи й презентації", "безпека в Інтернеті"],
-      "result": "впевнена й безпечна базова робота з комп'ютером"
+      "topics": ["основи композиції", "колір", "типографіка", "графічний дизайн", "створення цифрових макетів"],
+      "result": "власні дизайн-макети та оформлене портфоліо"
     }
   }
 }

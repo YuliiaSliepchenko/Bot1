@@ -11,9 +11,10 @@ COURSES = KNOWLEDGE["courses"]
 PHONE = KNOWLEDGE["school"]["manager_phone_display"]
 
 INTEREST_BUTTONS = [
-    ("games", "🎮 Ігри"), ("ai", "🤖 Штучний інтелект"),
-    ("programming", "💻 Програмування"), ("design", "🎨 Дизайн / 3D"),
-    ("blogging", "🎥 YouTube / TikTok"), ("computer", "🖥 Комп'ютери"),
+    ("photoshop", "🎨 Photoshop / малювання"),
+    ("after_effects", "🎬 After Effects / анімація"),
+    ("ai", "🤖 Штучний інтелект"),
+    ("digital_design", "✨ Цифровий дизайн"),
     ("unsure", "🤷 Ще не визначились")
 ]
 
@@ -72,17 +73,18 @@ def extract_age(text):
 
 def detect_course(text):
     value = text.lower()
-    aliases = {
-        "roblox": ["roblox", "роблокс", "lua", "ігри", "games"],
-        "python": ["python", "пітон", "код", "математ", "логік", "programming"],
-        "ai": ["штучн", "chatgpt", "ai", "ші", "нейромереж", "картин", "copilot"],
-        "blender": ["blender", "3d", "3д", "модел", "дизайн", "design"],
-        "blogging": ["youtube", "tiktok", "ютуб", "тікток", "блог", "відео", "blogging"],
-        "computer": ["комп'ют", "комп’ют", "windows", "грамот", "computer"]
+    if value.strip() in {"ai", "ші"}:
+        return "ai"
+    current_aliases = {
+        "photoshop": ["photoshop", "фотошоп", "малю", "ілюстрац", "обробк", "фото", "колаж"],
+        "after_effects": ["after effects", "aftereffects", "афтер ефект", "афтерефект", "моушн", "анімац", "відеоефект"],
+        "ai": ["штучн", "chatgpt", " ai", "ai ", "ші", "нейромереж", "генератив"],
+        "digital_design": ["цифровий дизайн", "цифрового дизайну", "графічн", "дизайн", "design", "макет", "типограф"]
     }
-    for course_id, words in aliases.items():
+    for course_id, words in current_aliases.items():
         if any(word in value for word in words):
             return course_id
+
     return None
 
 
@@ -127,6 +129,21 @@ def handle_chat(session_id, message, source="website_chat"):
     state = get_conversation_state(session_id)
     current = state["state"]
     phone = normalize_phone(text)
+
+    price_words = [
+        "ціна", "ціни", "вартість", "коштує", "коштують",
+        "скільки кошту", "оплата", "грн", "гривень"
+    ]
+    if any(word in lower for word in price_words):
+        return answer(
+            "Вартість одного заняття:\n\n"
+            "👤 Індивідуальне заняття — 450 грн.\n"
+            "👥 Заняття в мінігрупі до 4 учнів — 250 грн з учня.\n\n"
+            "Бажаєте записатися на пробне заняття?",
+            current,
+            ("trial", "✅ Записатися на пробне"),
+            ("manager", "📞 Зв'язатися з менеджером")
+        )
 
     if lower == "other_questions":
         update_conversation_state(session_id, state="AI_QUESTIONS")
@@ -234,7 +251,7 @@ def handle_chat(session_id, message, source="website_chat"):
             )
         course_id = detect_course(text)
         if not course_id:
-            return answer("Підкажіть, що ближче дитині: ігри, AI, програмування, 3D, блогінг чи основи роботи з комп'ютером?", current, *INTEREST_BUTTONS)
+            return answer("Підкажіть, що ближче дитині: Photoshop, After Effects, штучний інтелект чи цифровий дизайн?", current, *INTEREST_BUTTONS)
         state = update_conversation_state(session_id, interests=text, selected_course=course_id, state="OFFERING_TRIAL")
         return answer(f"Я рекомендую {course_summary(course_id)}\n\nХочете підібрати день і час для пробного заняття?", "OFFERING_TRIAL", ("trial", "✅ Так, записатися"), ("ask", "💬 Спочатку хочу запитати"), ("manager", "📞 Зв'язатися з менеджером"))
 
