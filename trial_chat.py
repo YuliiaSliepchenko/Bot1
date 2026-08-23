@@ -145,6 +145,22 @@ def handle_chat(session_id, message, source="website_chat"):
             ("manager", "📞 Зв'язатися з менеджером")
         )
 
+    course_list_phrases = [
+        "про курс", "про курси", "які курси", "які є курси",
+        "список курсів", "напрями", "які напрями", "що є"
+    ]
+    if lower in {"ask", "курс", "курси"} or any(phrase in lower for phrase in course_list_phrases):
+        return answer(
+            "У ItEnAi School є чотири напрями:\n\n"
+            "🎨 Adobe Photoshop — цифрове малювання, ілюстрації та обробка фото.\n"
+            "🎬 Adobe After Effects — анімація, моушн-дизайн і візуальні ефекти.\n"
+            "🤖 Штучний інтелект — ChatGPT, нейромережі та творчі AI-проєкти.\n"
+            "✨ Цифровий дизайн — композиція, колір, типографіка та створення макетів.\n\n"
+            "Оберіть напрям, про який хочете дізнатися більше:",
+            current,
+            *(COURSE_BUTTONS + NAV_BUTTONS)
+        )
+
     if lower == "other_questions":
         update_conversation_state(session_id, state="AI_QUESTIONS")
         return answer(
