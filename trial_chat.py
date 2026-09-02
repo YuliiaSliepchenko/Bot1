@@ -130,6 +130,24 @@ def handle_chat(session_id, message, source="website_chat"):
     current = state["state"]
     phone = normalize_phone(text)
 
+    booking_request_variants = {
+        "запис", "записатись", "записатися", "записатися на пробне",
+        "пробне", "пробне заняття", "на пробне",
+        "допомогти з записом", "допомогти із записом",
+        "хочу записатися", "хочу записатись", "можна записатись",
+        "можна записатися", "запис на пробне"
+    }
+    looks_like_gibberish = bool(re.search(r"[a-zа-я]{1,2}\s+[a-zа-я]{1,2}\s+[a-zа-я]{1,2}", lower)) and not any(word in lower for word in ["курс", "курс", "пробне", "малю", "дизайн", "анімац", "штучн", "запис", "хочу", "дитина", "вік", "хто", "що"]) 
+    if looks_like_gibberish:
+        lower = ""
+
+    if any(phrase in lower for phrase in booking_request_variants):
+        next_state = "ASKING_CHILD_NAME" if not state.get("child_name") else "ASKING_CHILD_AGE" if not state.get("child_age") else "ASKING_COURSE" if not state.get("selected_course") else "ASKING_DATE"
+        update_conversation_state(session_id, state=next_state)
+        prompts = {"ASKING_CHILD_NAME": "Супер 🚀 Як звати дитину?", "ASKING_CHILD_AGE": "Скільки років дитині?", "ASKING_COURSE": "Який напрям обираємо?", "ASKING_DATE": "Який день Вам буде зручний?"}
+        step_buttons = AGE_BUTTONS + NAV_BUTTONS if next_state == "ASKING_CHILD_AGE" else COURSE_BUTTONS + NAV_BUTTONS if next_state == "ASKING_COURSE" else DAY_BUTTONS + NAV_BUTTONS if next_state == "ASKING_DATE" else NAV_BUTTONS
+        return answer(prompts[next_state], next_state, *step_buttons)
+
     price_words = [
         "ціна", "ціни", "вартість", "коштує", "коштують",
         "скільки кошту", "оплата", "грн", "гривень"
