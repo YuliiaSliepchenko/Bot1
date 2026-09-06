@@ -6,15 +6,27 @@ from uuid import uuid4
 from db import create_trial_lead, get_conversation_state, update_conversation_state
 
 
-KNOWLEDGE = json.loads((Path(__file__).with_name("courses.json")).read_text(encoding="utf-8"))
-COURSES = KNOWLEDGE["courses"]
-PHONE = KNOWLEDGE["school"]["manager_phone_display"]
+FULL_KNOWLEDGE = json.loads(
+    (Path(__file__).with_name("ITENAISchool_knowledge_base_FULL.json")).read_text(encoding="utf-8")
+)
+COURSES = {course["id"]: course for course in FULL_KNOWLEDGE["courses"]}
+COURSES["blogging_video"] = {
+    "id": "blogging_video",
+    "name": "📱 Блогінг + Відеомонтаж",
+    "description": "Створення контенту для соціальних мереж: від ідеї та сценарію до зйомки й готового відео.",
+    "program": ["ідеї та сценарії", "зйомка", "монтаж", "CapCut", "субтитри", "переходи та ефекти"],
+    "result": "Власні завершені відео та контент для соціальних мереж",
+}
+PHONE = FULL_KNOWLEDGE["school"]["manager_phone"]
+FAQ = FULL_KNOWLEDGE["faq"]
 
 INTEREST_BUTTONS = [
-    ("photoshop", "🎨 Photoshop / малювання"),
-    ("after_effects", "🎬 After Effects / анімація"),
+    ("game_development", "🎮 Розробка ігор"),
+    ("web", "🌐 Розробка сайтів"),
+    ("python", "🐍 Програмування Python"),
     ("ai", "🤖 Штучний інтелект"),
-    ("digital_design", "✨ Цифровий дизайн"),
+    ("photoshop", "🎨 Дизайн і малювання"),
+    ("blogging_video", "📱 Блогінг + монтаж"),
     ("unsure", "🤷 Ще не визначились")
 ]
 
@@ -32,7 +44,17 @@ TIME_BUTTONS = [
 ]
 NAV_BUTTONS = [
     ("other_questions", "💬 Інші питання"),
-    ("manager", "📞 Зв'язатися з менеджером")
+    ("manager", "📞 Зв'язатися з менеджером"),
+    ("menu", "⬅️ Головне меню")
+]
+
+MAIN_MENU_BUTTONS = [
+    ("course_selection", "🎓 Підібрати напрям"),
+    ("trial", "🧪 Записатися на пробне"),
+    ("show_courses", "📚 Програми курсів"),
+    ("show_prices", "💰 Вартість"),
+    ("other_questions", "🤖 Запитати AI-менеджера"),
+    ("manager", "👩‍💼 Зв'язатися з менеджером"),
 ]
 
 
@@ -76,10 +98,25 @@ def detect_course(text):
     if value.strip() in {"ai", "ші"}:
         return "ai"
     current_aliases = {
+        "game_development": ["game_development", "розробк", "створ", "ігри", "ігор", "game development"],
+        "minecraft_education": ["minecraft", "майнкрафт"],
+        "roblox": ["roblox", "роблокс"],
+        "scratch": ["scratch", "скретч"],
+        "construct": ["construct"],
+        "unity": ["unity", "юніті"],
+        "python": ["python", "пайтон", "програмув"],
+        "vibe_coding": ["vibe coding", "вайб код"],
+        "web": ["web", "сайт", "html", "css", "javascript", "веб"],
+        "blender": ["blender", "блендер", "3d", "3д"],
+        "blogging": ["блог", "контент"],
+        "blogging_video": ["blogging_video", "блогінг + монтаж", "блогінг та монтаж"],
+        "computer_literacy": ["комп'ютерна грамот", "комп’ютерна грамот"],
+        "english_it": ["english", "англійськ"],
         "photoshop": ["photoshop", "фотошоп", "малю", "ілюстрац", "обробк", "фото", "колаж"],
         "after_effects": ["after effects", "aftereffects", "афтер ефект", "афтерефект", "моушн", "анімац", "відеоефект"],
         "ai": ["штучн", "chatgpt", " ai", "ai ", "ші", "нейромереж", "генератив"],
-        "digital_design": ["цифровий дизайн", "цифрового дизайну", "графічн", "дизайн", "design", "макет", "типограф"]
+        "digital_design": ["цифровий дизайн", "цифрового дизайну", "графічн", "дизайн", "design", "макет", "типограф"],
+        "video_editing": ["video_editing", "відеомонтаж", "монтаж відео"]
     }
     for course_id, words in current_aliases.items():
         if any(word in value for word in words):
@@ -90,14 +127,17 @@ def detect_course(text):
 
 def course_summary(course_id, include_price=False):
     course = COURSES[course_id]
-    text = f"{course['name']} — {', '.join(course['topics'][:5])}.\n\nРезультат: {course['result']}."
+    program = course.get("program", course.get("topics", []))
+    if isinstance(program, str):
+        program_text = program
+    else:
+        program_text = ", ".join(program[:5])
+    text = f"{course['name']} — {course.get('description', program_text)}"
+    if program_text:
+        text += f"\n\nНа курсі: {program_text}."
+    text += f"\n\nРезультат: {course['result']}."
     if include_price:
-        prices = []
-        if course.get("group_price"):
-            prices.append(f"групові — {course['group_price']} грн/заняття")
-        if course.get("individual_price"):
-            prices.append(f"індивідуальні — {course['individual_price']} грн/заняття")
-        text += "\n\nВартість: " + "; ".join(prices) + "."
+        text += f"\n\n{FAQ['prices']}"
     return text
 
 
@@ -123,12 +163,56 @@ def manager_response(state_name="MANAGER_REQUEST"):
     )
 
 
+def main_menu_response(text="Оберіть, що Вас цікавить:"):
+    return answer(text, "IDLE", *MAIN_MENU_BUTTONS)
+
+
+def deterministic_faq(lower):
+    """Return verified answers for common questions without calling the AI."""
+    rules = [
+        (("ціна", "ціни", "вартість", "коштує", "коштують", "скільки кошту", "оплата", "грн"), "prices"),
+        (("безкоштов", "пробний безкоштов", "пробне безкоштов"), "trial"),
+        (("дні пробн", "коли пробн", "день пробн", "розклад пробн"), "trial_days"),
+        (("онлайн", "дистанцій"), "is_online"),
+        (("формат", "індивідуаль", "мінігруп", "групов"), "formats"),
+        (("без досвіду", "з нуля", "досвід"), "experience"),
+        (("викладач", "вчитель", "педагог"), "teachers"),
+        (("сертифікат",), "certificate"),
+        (("адрес", "де знаходит", "кременчук"), "address"),
+        (("контакт", "телефон", "пошта", "email"), "contacts"),
+    ]
+    for phrases, key in rules:
+        if any(phrase in lower for phrase in phrases):
+            return FAQ[key]
+    return None
+
+
 def handle_chat(session_id, message, source="website_chat"):
     text = message.strip()
     lower = text.lower()
     state = get_conversation_state(session_id)
     current = state["state"]
     phone = normalize_phone(text)
+
+    action_aliases = {
+        "start_trial": "trial",
+        "start_course_selection": "course_selection",
+        "show_prices": "prices",
+        "ai_manager": "other_questions",
+        "live_manager": "manager",
+        "main_menu": "menu",
+    }
+    lower = action_aliases.get(lower, lower)
+
+    if lower == "menu":
+        update_conversation_state(session_id, state="IDLE")
+        return main_menu_response()
+
+    if lower == "show_courses":
+        lower = "курси"
+
+    if lower == "prices":
+        lower = "вартість"
 
     booking_request_variants = {
         "запис", "записатись", "записатися", "записатися на пробне",
@@ -141,7 +225,11 @@ def handle_chat(session_id, message, source="website_chat"):
     if looks_like_gibberish:
         lower = ""
 
-    if any(phrase in lower for phrase in booking_request_variants):
+    has_booking_intent = lower in booking_request_variants or any(
+        phrase in lower
+        for phrase in ("хочу запис", "можна запис", "запишіть", "допоможіть запис")
+    )
+    if has_booking_intent:
         next_state = "ASKING_CHILD_NAME" if not state.get("child_name") else "ASKING_CHILD_AGE" if not state.get("child_age") else "ASKING_COURSE" if not state.get("selected_course") else "ASKING_DATE"
         update_conversation_state(session_id, state=next_state)
         prompts = {"ASKING_CHILD_NAME": "Супер 🚀 Як звати дитину?", "ASKING_CHILD_AGE": "Скільки років дитині?", "ASKING_COURSE": "Який напрям обираємо?", "ASKING_DATE": "Який день Вам буде зручний?"}
@@ -160,7 +248,8 @@ def handle_chat(session_id, message, source="website_chat"):
             "Бажаєте записатися на пробне заняття?",
             current,
             ("trial", "✅ Записатися на пробне"),
-            ("manager", "📞 Зв'язатися з менеджером")
+            ("manager", "📞 Зв'язатися з менеджером"),
+            ("menu", "⬅️ Головне меню")
         )
 
     course_list_phrases = [
@@ -168,16 +257,21 @@ def handle_chat(session_id, message, source="website_chat"):
         "список курсів", "напрями", "які напрями", "що є"
     ]
     if lower in {"ask", "курс", "курси"} or any(phrase in lower for phrase in course_list_phrases):
+        course_names = "\n".join(f"• {course['name']}" for course in COURSES.values())
         return answer(
-            "У ItEnAi School є чотири напрями:\n\n"
-            "🎨 Adobe Photoshop — цифрове малювання, ілюстрації та обробка фото.\n"
-            "🎬 Adobe After Effects — анімація, моушн-дизайн і візуальні ефекти.\n"
-            "🤖 Штучний інтелект — ChatGPT, нейромережі та творчі AI-проєкти.\n"
-            "✨ Цифровий дизайн — композиція, колір, типографіка та створення макетів.\n\n"
+            f"У ItEnAi School доступні такі напрями:\n\n{course_names}\n\n"
             "Оберіть напрям, про який хочете дізнатися більше:",
             current,
             *(COURSE_BUTTONS + NAV_BUTTONS)
         )
+
+    manager_words = ["менеджер", "оператор", "людин", "адміністратор", "дайте номер", "зв'язатися", "зв’язатися", "консультац"]
+    if any(word in lower for word in manager_words) or lower == "manager":
+        if phone:
+            state = update_conversation_state(session_id, parent_phone=phone, pending_callback=1, state="CONFIRMING_CALLBACK")
+            return answer(f"Передати номер {phone} менеджеру ItEnAi School?", state["state"], ("confirm_callback", "✅ Так, передати"), ("cancel_callback", "❌ Ні"))
+        update_conversation_state(session_id, state="MANAGER_REQUEST")
+        return manager_response()
 
     if lower == "other_questions":
         update_conversation_state(session_id, state="AI_QUESTIONS")
@@ -192,19 +286,22 @@ def handle_chat(session_id, message, source="website_chat"):
         update_conversation_state(session_id, state="ASKING_AGE")
         return answer("Оберіть точний вік дитини:", "ASKING_AGE", *(AGE_BUTTONS + NAV_BUTTONS))
 
+    faq_answer = deterministic_faq(lower)
+    if faq_answer:
+        return answer(
+            faq_answer,
+            current,
+            ("trial", "🧪 Записатися на пробне"),
+            ("menu", "⬅️ Головне меню"),
+            ("manager", "📞 Зв'язатися з менеджером"),
+            used_ai=False,
+        )
+
     if current == "AI_QUESTIONS":
         if lower in {"trial", "повернутися до запису"}:
             update_conversation_state(session_id, state="ASKING_CHILD_NAME")
             return answer("Як звати дитину?", "ASKING_CHILD_NAME", *NAV_BUTTONS)
-        return answer("", "AI_QUESTIONS", ("trial", "📝 Повернутися до запису"), ("manager", "📞 Зв'язатися з менеджером"), needs_ai=True)
-
-    manager_words = ["менеджер", "оператор", "людин", "адміністратор", "дайте номер", "зв'язатися", "зв’язатися", "консультац"]
-    if any(word in lower for word in manager_words) or lower == "manager":
-        if phone:
-            state = update_conversation_state(session_id, parent_phone=phone, pending_callback=1, state="CONFIRMING_CALLBACK")
-            return answer(f"Передати номер {phone} менеджеру ItEnAi School?", state["state"], ("confirm_callback", "✅ Так, передати"), ("manager", "❌ Ні"))
-        update_conversation_state(session_id, state="MANAGER_REQUEST")
-        return manager_response()
+        return answer("", "AI_QUESTIONS", ("trial", "📝 Повернутися до запису"), ("manager", "📞 Зв'язатися з менеджером"), needs_ai=True, used_ai=True)
 
     if current == "MANAGER_REQUEST":
         if lower in {"leave_phone", "залишити мій номер"}:
@@ -212,13 +309,17 @@ def handle_chat(session_id, message, source="website_chat"):
             return answer("Напишіть, будь ласка, номер телефону — менеджер зв'яжеться з Вами.", "ASKING_CALLBACK_PHONE")
         if lower == "back":
             update_conversation_state(session_id, state="IDLE")
-            return answer("Повертаємося до консультації 😊 Скільки років дитині?", "ASKING_AGE", ("manager", "📞 Зв'язатися з менеджером"))
+            return main_menu_response("Повертаємося до консультації 😊")
 
     if current == "ASKING_CALLBACK_PHONE":
         if not phone:
             return answer("Не вдалося розпізнати номер. Напишіть його, наприклад: 093 148 03 43.", current)
         update_conversation_state(session_id, parent_phone=phone, state="CONFIRMING_CALLBACK")
-        return answer(f"Передати номер {phone} менеджеру ItEnAi School?", "CONFIRMING_CALLBACK", ("confirm_callback", "✅ Так, передати"), ("manager", "❌ Ні"))
+        return answer(f"Передати номер {phone} менеджеру ItEnAi School?", "CONFIRMING_CALLBACK", ("confirm_callback", "✅ Так, передати"), ("cancel_callback", "❌ Ні"))
+
+    if current == "CONFIRMING_CALLBACK" and lower in {"cancel_callback", "ні", "скасувати"}:
+        update_conversation_state(session_id, state="IDLE", pending_callback=0, confirmation_token=None)
+        return main_menu_response("Добре, номер не передаємо. Що Вас цікавить далі?")
 
     if current == "CONFIRMING_CALLBACK" and lower in {"confirm_callback", "так", "підтвердити", "да"}:
         token = state.get("confirmation_token") or str(uuid4())
@@ -255,7 +356,7 @@ def handle_chat(session_id, message, source="website_chat"):
             price = any(word in lower for word in ["ціна", "вартість", "скільки"])
             return answer(course_summary(course_id, price) + "\n\nСкільки років дитині?", "ASKING_AGE", ("manager", "📞 Зв'язатися з менеджером"))
         update_conversation_state(session_id, state="ASKING_AGE")
-        return answer("Вітаю 👋 Можна пройти короткий підбір курсу або одразу заповнити заявку на пробне заняття.", "ASKING_AGE", ("trial", "📝 Записатися на пробне"), ("course_selection", "🎓 Підібрати напрям"), *NAV_BUTTONS)
+        return main_menu_response("Вітаю 👋 Допоможу підібрати курс або записати дитину на безкоштовний пробний урок.")
 
     if current == "ASKING_CHILD_AGE":
         age = extract_age(text)
@@ -276,16 +377,17 @@ def handle_chat(session_id, message, source="website_chat"):
             return answer(
                 "Нічого страшного 😊 Що дитина частіше обирає у вільний час?",
                 current,
-                ("games", "🎮 Грати в ігри"),
+                ("game_development", "🎮 Створювати ігри"),
+                ("web", "🌐 Створювати сайти"),
+                ("python", "🐍 Програмувати"),
                 ("ai", "🤖 Експериментувати з AI"),
-                ("design", "🎨 Малювати або створювати"),
-                ("blogging", "🎥 Дивитися чи знімати відео"),
-                ("computer", "🖥 Освоїти комп'ютер"),
+                ("photoshop", "🎨 Малювати або створювати"),
+                ("blogging_video", "📱 Блогінг + монтаж відео"),
                 ("manager", "📞 Порадитися з менеджером")
             )
         course_id = detect_course(text)
         if not course_id:
-            return answer("Підкажіть, що ближче дитині: Photoshop, After Effects, штучний інтелект чи цифровий дизайн?", current, *INTEREST_BUTTONS)
+            return answer("Оберіть, що дитині найбільше подобається:", current, *(INTEREST_BUTTONS + NAV_BUTTONS))
         state = update_conversation_state(session_id, interests=text, selected_course=course_id, state="OFFERING_TRIAL")
         return answer(f"Я рекомендую {course_summary(course_id)}\n\nХочете підібрати день і час для пробного заняття?", "OFFERING_TRIAL", ("trial", "✅ Так, записатися"), ("ask", "💬 Спочатку хочу запитати"), ("manager", "📞 Зв'язатися з менеджером"))
 
@@ -324,4 +426,4 @@ def handle_chat(session_id, message, source="website_chat"):
     course_id = detect_course(text)
     if course_id:
         return answer(course_summary(course_id, any(word in lower for word in ["ціна", "вартість"])), current, ("trial", "✅ Записатися на пробне"), ("manager", "📞 Зв'язатися з менеджером"))
-    return answer("Можу розповісти про курс або допомогти із записом на пробне заняття. Що Вас цікавить?", current, ("trial", "✅ Записатися на пробне"), ("manager", "📞 Зв'язатися з менеджером"))
+    return main_menu_response("Можу розповісти про курс або допомогти із записом на пробне заняття. Що Вас цікавить?")

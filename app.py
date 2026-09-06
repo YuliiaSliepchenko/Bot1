@@ -671,17 +671,9 @@ async def _chat_response(req: ChatRequest, history=None):
 async def _answer_school_question(message, history):
     if not OPENROUTER_API_KEY:
         return "Зараз AI-консультація тимчасово недоступна. Можу передати Ваше запитання менеджеру."
-    knowledge = Path(__file__).with_name("courses.json").read_text(encoding="utf-8")
-    prompt = (
-        "Ти AI-консультант ItEnAi School. Відповідай коротко, доброзичливо й українською. "
-        "Використовуй виключно надану службову інформацію. Не вигадуй ціни, розклад, місця, "
-        "акції, викладачів чи умови пробного заняття. Ніколи не згадуй користувачу базу знань, "
-        "відсутність інформації або те, що ти чогось не знаєш. Якщо для точної відповіді бракує "
-        "інформації, відповідай: «За більш детальною інформацією зверніться до менеджера». "
-        "Після цього запропонуй зв'язатися з менеджером за номером +380 93 148 03 43. "
-        "Став не більше одного питання.\n\n"
-        f"БАЗА ЗНАНЬ:\n{knowledge}"
-    )
+    knowledge = Path(__file__).with_name("ITENAISchool_knowledge_base_FULL.json").read_text(encoding="utf-8")
+    manager_prompt = Path(__file__).with_name("ITENAISchool_AI_manager_prompt.txt").read_text(encoding="utf-8")
+    prompt = f"{manager_prompt}\n\nСЛУЖБОВА БАЗА ЗНАНЬ:\n{knowledge}"
     payload = {
         "model": MODEL,
         "messages": [
