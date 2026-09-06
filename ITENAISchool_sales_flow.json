@@ -1,0 +1,239 @@
+{
+  "version": "1.0",
+  "school": "ITENAISchool",
+  "purpose": "Кнопковий сценарій для ведення батьків від першого контакту до пробного заняття або передачі живому менеджеру.",
+  "main_menu": {
+    "message": "👋 Вітаємо в ITENAISchool!\nДопоможу підібрати напрям для вашої дитини 😊\n\nОберіть, що вас цікавить:",
+    "buttons": [
+      {
+        "text": "🎓 Підібрати курс",
+        "action": "start_course_selection"
+      },
+      {
+        "text": "🧪 Записатися на пробне",
+        "action": "start_trial"
+      },
+      {
+        "text": "📚 Програми курсів",
+        "action": "show_courses"
+      },
+      {
+        "text": "💰 Вартість",
+        "action": "show_prices"
+      },
+      {
+        "text": "🤖 Запитати AI-менеджера",
+        "action": "ai_manager"
+      },
+      {
+        "text": "👩‍💼 Зв'язатися з менеджером",
+        "action": "live_manager"
+      }
+    ]
+  },
+  "course_selection": {
+    "start": {
+      "message": "🎓 Давайте підберемо напрям для дитини.\n\nСкільки років дитині?",
+      "buttons": [
+        {
+          "text": "6–8 років",
+          "action": "age_6_8"
+        },
+        {
+          "text": "9–12 років",
+          "action": "age_9_12"
+        },
+        {
+          "text": "13–15 років",
+          "action": "age_13_15"
+        },
+        {
+          "text": "16–18 років",
+          "action": "age_16_18"
+        }
+      ]
+    },
+    "interests": {
+      "message": "Чудово 😊 А що найбільше цікавить дитину?",
+      "buttons": [
+        {
+          "text": "🎮 Ігри",
+          "action": "interest_games"
+        },
+        {
+          "text": "💻 Програмування",
+          "action": "interest_programming"
+        },
+        {
+          "text": "🤖 Штучний інтелект",
+          "action": "interest_ai"
+        },
+        {
+          "text": "🎨 Дизайн і 3D",
+          "action": "interest_design_3d"
+        },
+        {
+          "text": "📱 Блогінг та відео",
+          "action": "interest_content"
+        },
+        {
+          "text": "🤷 Не знаємо",
+          "action": "interest_unknown"
+        }
+      ]
+    },
+    "experience": {
+      "message": "А чи має дитина досвід у цьому напрямку?",
+      "buttons": [
+        {
+          "text": "🟢 Ні, починаємо з нуля",
+          "action": "experience_zero"
+        },
+        {
+          "text": "🟡 Трохи займалась",
+          "action": "experience_some"
+        },
+        {
+          "text": "🔵 Вже має досвід",
+          "action": "experience_advanced"
+        }
+      ]
+    }
+  },
+  "recommendation_rules": {
+    "games": [
+      "Roblox Studio",
+      "Розробка комп'ютерних ігор",
+      "Construct",
+      "Unity",
+      "Minecraft Education"
+    ],
+    "programming": [
+      "Python",
+      "Vibe Coding",
+      "Web Development HTML/CSS/JS"
+    ],
+    "ai": [
+      "Штучний інтелект"
+    ],
+    "design_3d": [
+      "Blender 3D",
+      "Adobe Photoshop",
+      "Цифровий дизайн"
+    ],
+    "content": [
+      "Блогінг",
+      "Відеомонтаж",
+      "AI для створення контенту"
+    ],
+    "unknown": "Запропонувати коротко описати інтереси дитини або перейти до пробного заняття."
+  },
+  "trial": {
+    "collect_order": [
+      "child_name",
+      "child_age",
+      "selected_course",
+      "parent_phone",
+      "preferred_day",
+      "preferred_time"
+    ],
+    "messages": {
+      "start": "🧪 Чудово! Запишемо дитину на пробне заняття 😊\n\nЯк звати дитину?",
+      "child_age": "Скільки років дитині?",
+      "course": "Який напрям вас цікавить?",
+      "phone": "Залиште, будь ласка, номер телефону одного з батьків 📞",
+      "day": "Оберіть зручний день для пробного заняття:",
+      "time": "Який час у цей день буде для вас зручним? Напишіть бажаний час, наприклад: 12:00 або після 16:00.",
+      "success": "🎉 Дякуємо! Заявку на пробне заняття отримано.\n\nМенеджер ITENAISchool зв'яжеться з вами для підтвердження точного часу."
+    },
+    "days": [
+      {
+        "text": "📅 П'ятниця",
+        "action": "day_friday"
+      },
+      {
+        "text": "📅 Субота",
+        "action": "day_saturday"
+      }
+    ],
+    "confirmation": "Перевірте, будь ласка, дані:\n\n🧒 Ім'я: {child_name}\n🎂 Вік: {child_age}\n📚 Напрям: {selected_course}\n📞 Телефон: {parent_phone}\n📅 День: {preferred_day}\n⏰ Час: {preferred_time}\n\nУсе правильно?",
+    "confirmation_buttons": [
+      {
+        "text": "✅ Так, усе правильно",
+        "action": "confirm_trial"
+      },
+      {
+        "text": "✏️ Змінити дані",
+        "action": "edit_trial"
+      }
+    ]
+  },
+  "prices": {
+    "message": "💰 Вартість навчання:\n\n👤 Індивідуальне заняття — 450 грн.\n👥 Заняття в мінігрупі до 4 учнів — 250 грн.\n\nХочете підібрати формат для дитини?",
+    "buttons": [
+      {
+        "text": "🎓 Підібрати курс",
+        "action": "start_course_selection"
+      },
+      {
+        "text": "🧪 Пробне заняття",
+        "action": "start_trial"
+      },
+      {
+        "text": "🤖 Є питання",
+        "action": "ai_manager"
+      }
+    ]
+  },
+  "ai_manager": {
+    "entry_message": "🤖 Поставте питання AI-менеджеру ITENAISchool.",
+    "allowed_topics": [
+      "курси",
+      "програми",
+      "вік",
+      "формат",
+      "ціни",
+      "пробне заняття",
+      "навчальний процес",
+      "викладачі",
+      "заперечення батьків"
+    ],
+    "fallback": "Я не хочу надати вам неточну інформацію 😊 Цього питання немає в моїй базі знань. Ви можете звернутися до живого менеджера.",
+    "buttons": [
+      {
+        "text": "👩‍💼 Живий менеджер",
+        "action": "live_manager"
+      },
+      {
+        "text": "🧪 Записатися на пробне",
+        "action": "start_trial"
+      }
+    ]
+  },
+  "live_manager": {
+    "message": "👩‍💼 Звичайно! Ви можете зв'язатися з нашим менеджером:\n\n📞 +380 93 148 03 43\n\nАбо залиште свій номер телефону — менеджер зв'яжеться з вами.",
+    "buttons": [
+      {
+        "text": "🧪 Записатися на пробне",
+        "action": "start_trial"
+      },
+      {
+        "text": "⬅️ Головне меню",
+        "action": "main_menu"
+      }
+    ]
+  },
+  "rules": {
+    "available_trial_days": [
+      "П'ятниця",
+      "Субота"
+    ],
+    "do_not_offer_other_days": true,
+    "do_not_invent_schedule": true,
+    "do_not_invent_prices": true,
+    "do_not_repeat_answered_questions": true,
+    "hot_lead_short_path": true,
+    "ai_only_school_topics": true,
+    "unknown_question_goes_to_live_manager": true
+  }
+}
